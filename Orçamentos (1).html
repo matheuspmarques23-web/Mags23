@@ -436,7 +436,7 @@ const HEADER_MAP = {
   "data de saida": ["data de saida","data de saída","saida","saída","entregue"],
   "etiqueta": ["etiqueta","tag","categoria"],
   "status": ["status","situacao","situação","fase"],
-  "total cp": ["total cp","total","valor total","valor","preco","preço"],
+  "total cp": ["total cp","total da os","total do orçamento","valor total da os","valor total do orçamento"],
   // Campos de itens
   "tipo": ["tipo","tipo item","categoria"],
   "descricao": ["descricao","descrição","item","descricao do item","descrição do item"],
@@ -672,10 +672,19 @@ function renderFilterableTable(el, rows, onRowClick){
 
 /* =================== Money =================== */
 function parseMoneyCell(v){
-  if(v==null) return 0;
-  if(typeof v==='number') return v;
+  if (v == null) return 0;
+  if (typeof v === 'number') return v;
   let s = normalizeVal(v);
-  s = s.replace(/\./g,'').replace(',', '.');
+
+  // remove tudo que não seja dígito, separadores ou parênteses
+  s = s.replace(/[^0-9,.\-()]/g, '');
+
+  // negativo entre parênteses -> prefixa '-'
+  s = s.replace(/^\((.*)\)$/, '-$1');
+
+  // remove pontos de milhar e usa ponto como separador decimal
+  s = s.replace(/\./g, '').replace(',', '.');
+
   const n = parseFloat(s);
   return isNaN(n) ? 0 : n;
 }
@@ -790,6 +799,7 @@ async function importCSV(file){
       return -1;
     };
 
+    const idxTotalCP = getIdx('Total CP','Total da OS','Total do Orçamento','Valor total da OS','Valor total do orçamento');
     const idxNumero = getIdx('Numero do Orçamento','Numero OS','Nº OS');
     const idxTipo = getIdx('Tipo','Tipo de item','Tipo do item');
     const idxDesc = getIdx('Descrição','Descricao','Descrição do item');
@@ -802,7 +812,8 @@ async function importCSV(file){
       const row = rows[i];
       const osRaw = idxNumero>=0 ? normalizeVal(row[idxNumero]) : '';
       if(!osRaw) continue;
-      const osKey = osRaw.replace(/\D/g,'');
+      const osBase = osRaw.split('/')[0].trim();
+      const osKey = osBase.replace(/\D/g,'');
       let rec = map.get(osKey);
       if(!rec){
         rec = {servicos:[], pecas:[], totalGeral:0, totalServicos:0, totalPecas:0};
@@ -810,6 +821,11 @@ async function importCSV(file){
           const pos = index[normalizeKey(h)];
           rec[h] = pos >= 0 ? normalizeVal(row[pos]) : "";
         });
+        rec["Total CP"] = 0;
+        if(idxTotalCP >= 0){
+          const v = parseMoneyCell(row[idxTotalCP]);
+          rec["Total CP"] = v > 0 ? v : 0;
+        }
         rec._de = parseDateStrict(rec["Data de Entrada"]);
         rec._da = parseDateStrict(rec["Data de Autorização"]);
         rec._df = parseDateStrict(rec["Data de Fechamento"]);
@@ -834,10 +850,15 @@ async function importCSV(file){
         rec.pecas.push(item);
         rec.totalPecas += item.total;
       }
-      rec["Total CP"] = rec.totalGeral;
 
       if((i+1)%100===0 || i===rows.length-1){
         diagProgress.textContent = `Processando ${i+1}/${rows.length}`;
+      }
+    }
+
+    for(const rec of map.values()){
+      if(rec["Total CP"] === 0){
+        rec["Total CP"] = rec.totalGeral;
       }
     }
 
