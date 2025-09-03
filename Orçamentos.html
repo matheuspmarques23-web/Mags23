@@ -497,7 +497,10 @@ function classifyRec(rec){
 
 /* =================== Estado =================== */
 let DATA = []; // preenchido na importação
-const headers = ["Numero do Orçamento","Cliente","Placa","Veículo","Data de Entrada","Data de Autorização","Data de Fechamento","Data de Saída","Etiqueta","Status","Total CP"];
+const headers = ["Numero do Orçamento","Cliente","Placa","Veículo",
+  "Etiqueta","Status","Data de Entrada","Data de Autorização",
+  "Data de Fechamento","Data de Saída",
+  "Total Geral","Total Serviços","Total Peças"];
 const diagProgress = document.getElementById('diagProgress');
 const diagLines = document.getElementById('diagLines');
 const diagErrors = document.getElementById('diagErrors');
@@ -549,7 +552,7 @@ function renderFilterableTable(el, rows, onRowClick){
       tr.addEventListener('click', ()=> onRowClick && onRowClick(r, idx, data));
       headers.forEach(h=>{
         const td = document.createElement('td');
-        if(h==="Total CP"){
+        if(h.startsWith("Total")){
           const num = (typeof r[h]==='number') ? r[h] : parseMoneyCell(r[h]);
           td.textContent = fmtMoney(num);
         }else if(h.startsWith("Data ")){
@@ -584,7 +587,7 @@ function renderFilterableTable(el, rows, onRowClick){
         const q = filters[h];
         if(!q) return true;
         let val = "";
-        if(h==="Total CP"){
+        if(h.startsWith("Total")){
           val = String((typeof r[h]==='number'? r[h] : parseMoneyCell(r[h]))).toLowerCase();
         }else if(h.startsWith("Data ")){
           const keyMap = {"Data de Entrada":"_de","Data de Autorização":"_da","Data de Fechamento":"_df","Data de Saída":"_ds"};
@@ -600,7 +603,7 @@ function renderFilterableTable(el, rows, onRowClick){
       const col = sortState.col;
       const dir = sortState.dir;
       filtered.sort((a,b)=>{
-        if(col==="Total CP"){
+        if(col.startsWith("Total")){
           const av = (typeof a[col]==='number')?a[col]:parseMoneyCell(a[col]);
           const bv = (typeof b[col]==='number')?b[col]:parseMoneyCell(b[col]);
           return (av-bv)*dir;
@@ -671,7 +674,7 @@ function computeMetrics(data, tempoAgg="media"){
 
   data.forEach(r => {
     const cls = classifyRec(r);
-    const val = parseMoneyCell(r["Total CP"]);
+    const val = parseMoneyCell(r["Total Geral"]);
     sumTotal += val;
 
     if (cls.fin === "Faturado")      sumFaturado += val;
@@ -705,7 +708,7 @@ function computeMetrics(data, tempoAgg="media"){
     const ym = ymKey(r);
     if(!ym) return;
     if(!byMonth[ym]) byMonth[ym] = { valores: [], count: 0 };
-    byMonth[ym].valores.push(parseMoneyCell(r["Total CP"]));
+    byMonth[ym].valores.push(parseMoneyCell(r["Total Geral"]));
     byMonth[ym].count++;
   });
 
@@ -964,7 +967,7 @@ function renderDrawer(r){
   kvEl.appendChild(kdiv);
   const vdiv = document.createElement('div');
   const strong = document.createElement('strong');
-  strong.textContent = fmtMoney(parseMoneyCell(r["Total CP"]));
+  strong.textContent = fmtMoney(parseMoneyCell(r["Total Geral"]));
   vdiv.appendChild(strong);
   kvEl.appendChild(vdiv);
 
@@ -1051,7 +1054,7 @@ function updateChart(data){
     if(!byMonth[ym]) byMonth[ym] = 0;
     const cls = classifyRec(r);
     if(cls.fin === "Faturado") {
-      byMonth[ym] += parseMoneyCell(r["Total CP"]);
+      byMonth[ym] += parseMoneyCell(r["Total Geral"]);
     }
   });
 
@@ -1131,7 +1134,7 @@ function updateAnalises(){
   const finTotals = { "Faturado":0, "A faturar":0, "Cancelado":0 };
   data.forEach(r=>{
     const cls = classifyRec(r);
-    finTotals[cls.fin] += parseMoneyCell(r["Total CP"]);
+    finTotals[cls.fin] += parseMoneyCell(r["Total Geral"]);
   });
   chartsAnalises.distrib = new Chart(document.getElementById('chartDistribFinanceira'), {
     type: 'doughnut',
@@ -1168,7 +1171,7 @@ function updateAnalises(){
     const cls = classifyRec(r);
     if(cls.fin!=="Faturado") return;
     if(!byMonth[ym]) byMonth[ym]=0;
-    byMonth[ym]+=parseMoneyCell(r["Total CP"]);
+    byMonth[ym]+=parseMoneyCell(r["Total Geral"]);
   });
   const months = Object.keys(byMonth).sort();
   const vals = months.map(m=>byMonth[m]);
@@ -1190,7 +1193,7 @@ function updateAnalises(){
   const byCli = {};
   faturados.forEach(r=>{
     const k = r.Cliente||'—';
-    byCli[k]=(byCli[k]||0)+parseMoneyCell(r["Total CP"]);
+    byCli[k]=(byCli[k]||0)+parseMoneyCell(r["Total Geral"]);
   });
   const top = Object.entries(byCli).sort((a,b)=>b[1]-a[1]).slice(0,10);
   chartsAnalises.topcli = new Chart(document.getElementById('chartTopClientes'), {
@@ -1244,7 +1247,7 @@ function updateAnalises(){
   // Ticket Médio Mensal
   const ticketVals = meses.map(m=>{
     const recs = data.filter(r=>ymKey(r)===m);
-    const total = recs.reduce((a,b)=>a+parseMoneyCell(b["Total CP"]),0);
+    const total = recs.reduce((a,b)=>a+parseMoneyCell(b["Total Geral"]),0);
     return recs.length ? total/recs.length : 0;
   });
   chartsAnalises.ticket = new Chart(document.getElementById('chartTicketMedio'),{
@@ -1279,14 +1282,17 @@ function updateAnalises(){
 
 /* =================== Export CSV =================== */
 function exportCSV(data, filename){
-  const headersExp = ["Numero do Orçamento","Cliente","Placa","Veículo","Data de Entrada","Data de Autorização","Data de Fechamento","Data de Saída","Etiqueta","Status","Total CP"];
+  const headersExp = ["Numero do Orçamento","Cliente","Placa","Veículo",
+    "Etiqueta","Status","Data de Entrada","Data de Autorização",
+    "Data de Fechamento","Data de Saída",
+    "Total Geral","Total Serviços","Total Peças"];
   const rows = [headersExp];
   data.forEach(r => {
     const row = headersExp.map(h => {
       if(h.startsWith("Data ")) {
         const keyMap = {"Data de Entrada":"_de","Data de Autorização":"_da","Data de Fechamento":"_df","Data de Saída":"_ds"};
         return fmtDateBR(r[keyMap[h]]);
-      } else if(h === "Total CP") {
+      } else if(h.startsWith("Total")) {
         return parseMoneyCell(r[h]).toFixed(2).replace('.', ',');
       } else {
         return r[h] || "";
@@ -1419,7 +1425,7 @@ document.addEventListener('DOMContentLoaded', () => {
         cliente: r.Cliente, placa: r.Placa, veiculo: r["Veículo"] || r["Veiculo"],
         etiqueta: r.Etiqueta, status: r.Status,
         entrada: fmtDateBR(r._de), autorizacao: fmtDateBR(r._da), fechamento: fmtDateBR(r._df), saida: fmtDateBR(r._ds),
-        valor: parseMoneyCell(r["Total CP"])
+        valor: parseMoneyCell(r["Total Geral"])
       };
       navigator.clipboard.writeText(JSON.stringify(payload, null, 2)).then(()=> {
         alert("Detalhe copiado para a área de transferência.");
