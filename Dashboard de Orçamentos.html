@@ -1,0 +1,1618 @@
+<!DOCTYPE html>
+<html lang="pt-br" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<title>Dashboard de Orçamentos da Motorhub</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  /* ======== Temas (light/dark via data-theme no <html>) ======== */
+  :root {
+    --mh-blue: #0a2140;
+    --mh-orange: #f26722;
+    --mh-text: #333;
+    --mh-bg: #fff;
+    --mh-card: #f8f9fa;
+    --mh-soft: #e9ecef;
+    --mh-muted: #6c757d;
+    --mh-border: #e9ecef;
+
+    --ok:#16a34a; --warn:#f59e0b; --bad:#ef4444; --info:#3b82f6;
+  }
+  html[data-theme="dark"] {
+    --mh-blue: #0a2140;
+    --mh-orange: #f26722;
+    --mh-text: #e5e7eb;
+    --mh-bg: #0b1020;
+    --mh-card: #0f172a;
+    --mh-soft: #1e293b;
+    --mh-muted: #94a3b8;
+    --mh-border: #20324a;
+  }
+
+  /* ======== Base ======== */
+  * { box-sizing: border-box; }
+  body { background:var(--mh-bg); color:var(--mh-text); font-family: Inter, system-ui, Arial, sans-serif; margin:0; }
+  header { padding:12px 16px; background:var(--mh-blue); color:white; display:flex; align-items:center; gap:12px; }
+  header h1 { margin:0; font-size:18px; letter-spacing:.3px; font-weight:700; flex: 1; }
+  .brand { display:flex; align-items:center; gap:12px; min-width:0; }
+  .brand img { height:40px; width:auto; object-fit:contain; display:block; }
+  .brand .no-logo { font-size:12px; opacity:.85; white-space:nowrap; }
+  .header-actions { display:flex; align-items:center; gap:10px; }
+  .theme-switcher { cursor:pointer; user-select:none; font-size:18px; line-height:1; }
+  .wrap { padding:20px; }
+  .tabs { display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap; }
+  .tabs button { background:var(--mh-soft); color:var(--mh-text); border:1px solid var(--mh-border); padding:10px 14px; border-radius:10px; cursor:pointer; }
+  .tabs button.active { background:var(--mh-orange); border-color:transparent; color:white; font-weight:700; }
+  .toolbar { display:flex; gap:10px; align-items:center; margin-bottom:12px; flex-wrap:wrap; }
+  .toolbar input[type="file"], select, input[type="text"] { background:var(--mh-soft); border:1px solid var(--mh-border); color:var(--mh-text); padding:8px; border-radius:8px; }
+  .card { background:var(--mh-card); border:1px solid var(--mh-border); padding:14px; border-radius:14px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+  .grid { display:grid; gap:12px; }
+  .grid.cols-4 { grid-template-columns: repeat(4, minmax(0,1fr)); }
+  .grid.cols-3 { grid-template-columns: repeat(3, minmax(0,1fr)); }
+  .grid.cols-2 { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .grid.charts { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+  @media (max-width: 1100px){ .grid.cols-4{ grid-template-columns: repeat(2, minmax(0,1fr)); } }
+  @media (max-width: 700px){ .grid.cols-3, .grid.cols-4, .grid.cols-2{ grid-template-columns: 1fr; } }
+
+  .row-title { margin:8px 0 8px; color:var(--mh-muted); font-size:12px; letter-spacing:.6px; text-transform:uppercase; }
+  .kpi { display:flex; flex-direction:column; gap:4px; }
+  .kpi .label { color:var(--mh-muted); font-size:12px; }
+  .kpi .val { font-size:22px; font-weight:800; }
+  .hidden { display:none !important; }
+
+  table { width:100%; border-collapse:collapse; }
+  th, td { padding:6px 8px; border-bottom:1px solid var(--mh-border); font-size:13px; }
+  th { text-align:left; color:var(--mh-muted); font-weight:600; position:sticky; top:0; background:var(--mh-card); z-index:1; cursor:pointer; user-select:none; }
+  thead input { width: 100%; box-sizing: border-box; padding:6px; margin-top:6px; background:var(--mh-soft); border:1px solid var(--mh-border); color:var(--mh-text); border-radius:6px; font-size:12px; }
+  canvas { width:100%; height:auto; max-height: 50vh; }
+  .btn { background:var(--mh-soft); color:var(--mh-text); border:1px solid var(--mh-border); padding:8px 12px; border-radius:8px; cursor:pointer; }
+  .hint { color:var(--mh-muted); font-size:12px; }
+  .sort-ind { margin-left:6px; color:var(--mh-orange); }
+
+  /* ======== Visualizador de Linha (Drawer) ======== */
+  .drawer {
+    position: fixed; top:0; right:-480px; width:480px; max-width:92%;
+    height:100vh; background:var(--mh-card); border-left:1px solid var(--mh-border);
+    box-shadow: -10px 0 30px rgba(0,0,0,.2); transition: right .25s ease; z-index: 9999;
+    display:flex; flex-direction:column;
+  }
+  .drawer.open { right:0; }
+  .drawer-header { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:12px 14px; border-bottom:1px solid var(--mh-border); }
+  .drawer-title { font-weight:800; font-size:14px; }
+  .drawer-body { padding:14px; overflow:auto; display:flex; flex-direction:column; gap:12px; }
+  .drawer-tabs { display:flex; gap:8px; }
+  .drawer-tabs button { flex:1; background:var(--mh-soft); border:1px solid var(--mh-border); padding:8px; border-radius:8px; cursor:pointer; }
+  .drawer-tabs button.active { background:var(--mh-orange); color:white; border-color:var(--mh-orange); }
+  .drawerTab { display:flex; flex-direction:column; gap:12px; }
+  .pill { display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border-radius:999px; font-size:12px; border:1px solid var(--mh-border); }
+  .pill.fin-Faturado { background: rgba(22,163,74,.15); border-color: rgba(22,163,74,.35); }
+  .pill.fin-A\ faturar { background: rgba(59,130,246,.15); border-color: rgba(59,130,246,.35); }
+  .pill.fin-Cancelado { background: rgba(239,68,68,.15); border-color: rgba(239,68,68,.35); }
+  .pill.ctrl-Em\ análise { background: rgba(245,158,11,.15); border-color: rgba(245,158,11,.35); }
+  .pill.ctrl-Autorizado { background: rgba(59,130,246,.15); border-color: rgba(59,130,246,.35); }
+  .pill.ctrl-Faturado { background: rgba(22,163,74,.15); border-color: rgba(22,163,74,.35); }
+  .pill.ctrl-Cancelado { background: rgba(239,68,68,.15); border-color: rgba(239,68,68,.35); }
+  .kv { display:grid; grid-template-columns: 120px 1fr; gap:6px 10px; font-size:13px; }
+  .kv .k { color:var(--mh-muted); }
+  .timeline { display:flex; flex-direction:column; gap:8px; }
+  .trow { display:flex; align-items:center; gap:8px; font-size:13px; }
+  .dot { width:10px; height:10px; border-radius:50%; background:var(--info); }
+  .bar { height:6px; background:linear-gradient(90deg, var(--info), var(--ok)); border-radius:4px; position:relative; }
+  .bar .seg { position:absolute; top:0; bottom:0; background:var(--warn); }
+  .drawer-actions { display:flex; justify-content:space-between; align-items:center; padding:10px 14px; border-top:1px solid var(--mh-border); }
+  .drawer-actions .group { display:flex; gap:8px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <img id="companyLogo" alt="Logo da Empresa" src="logo.png" onerror="this.classList.add('hidden'); document.getElementById('noLogo').classList.remove('hidden');">
+    <span id="noLogo" class="no-logo hidden">Sem logo — carregue um arquivo</span>
+  </div>
+  <h1>Dashboard de Orçamentos da Motorhub</h1>
+  <div class="header-actions">
+    <label class="btn" title="Carregar logo (PNG/JPG/SVG)">
+      Carregar logo <input id="logoInput" type="file" accept="image/*" class="hidden">
+    </label>
+    <div id="themeBtn" class="theme-switcher" title="Alternar tema">🌙</div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="toolbar">
+    <label><strong>Carregar CSV:</strong> <input id="fileInput" type="file" accept=".csv" /></label>
+    <span class="hint">Aceita ; ou , — com campos entre aspas e codificação UTF-8 / ISO-8859-1. Hora nas datas é ignorada.</span>
+  </div>
+
+  <div class="tabs">
+    <button class="tabBtn active" data-tab="ano">Ano</button>
+    <button class="tabBtn" data-tab="mes">Mês/Ano</button>
+    <button class="tabBtn" data-tab="analises">Análises</button>
+    <button class="tabBtn" data-tab="tabela">Tabela Base</button>
+    <button class="tabBtn" data-tab="diag">Diagnóstico</button>
+  </div>
+
+  <!-- ABA: ANO -->
+  <section id="ano" class="tabContent">
+    <div class="toolbar">
+      <label>Ano: <select id="anoSelect"></select></label>
+      <label>Cliente: <input id="searchCliente" type="text" placeholder="Buscar por cliente" /></label>
+      <label>Tempo: 
+        <select id="tempoAgg">
+          <option value="media">Média</option>
+          <option value="mediana">Mediana</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="row-title">Financeiro</div>
+    <div class="grid cols-4">
+      <div class="card kpi"><div class="label">Total Faturado</div><div id="kpi_faturado" class="val">—</div></div>
+      <div class="card kpi"><div class="label">A Faturar</div><div id="kpi_afaturar" class="val">—</div></div>
+      <div class="card kpi"><div class="label">Cancelado</div><div id="kpi_cancelado" class="val">—</div></div>
+      <div class="card kpi"><div class="label">Total</div><div id="kpi_total" class="val">—</div></div>
+    </div>
+
+    <div class="row-title">Controle</div>
+    <div class="grid cols-4">
+      <div class="card kpi"><div class="label">Total de Orçamentos</div><div id="kpi_total_orc" class="val">—</div></div>
+      <div class="card kpi"><div class="label">Em Análise</div><div id="kpi_analise" class="val">—</div></div>
+      <div class="card kpi"><div class="label">Autorizados</div><div id="kpi_autorizados" class="val">—</div></div>
+      <div class="card kpi"><div class="label">Faturados</div><div id="kpi_faturados" class="val">—</div></div>
+      <div class="card kpi"><div class="label">Cancelados</div><div id="kpi_cancelados" class="val">—</div></div>
+    </div>
+
+    <div class="row-title">Tempo (linhas com Entrada + Autorização + Saída)</div>
+    <div class="grid cols-3">
+      <div class="card kpi"><div class="label">Ciclo Médio (dias)</div><div id="kpi_ciclo" class="val">—</div></div>
+      <div class="card kpi"><div class="label">Tempo Total Médio (dias)</div><div id="kpi_ttotal" class="val">—</div></div>
+      <div class="card kpi"><div class="label">Conversão (% Faturado / Não Cancelado)</div><div id="kpi_conv" class="val">—</div></div>
+    </div>
+
+    <div class="row-title">Percentis (distribuição de tempos)</div>
+    <div class="grid cols-3">
+      <div class="card kpi"><div class="label">Ciclo P50 / P90</div><div id="kpi_p_ciclo" class="val">—</div></div>
+      <div class="card kpi"><div class="label">Total P50 / P90</div><div id="kpi_p_total" class="val">—</div></div>
+      <div class="card kpi"><div class="label">Ticket Médio</div><div id="kpi_ticket" class="val">—</div></div>
+    </div>
+
+    <div class="row-title">Faturamento Mensal</div>
+    <div class="grid cols-3">
+      <div class="card kpi"><div class="label">Média R$ por Mês (média dos valores médios)</div><div id="kpi_media_mes_val" class="val">—</div></div>
+      <div class="card kpi"><div class="label">Média de Orçamentos/Mês</div><div id="kpi_media_mes_qtd" class="val">—</div></div>
+    </div>
+
+    <div class="card" style="margin-top:12px;">
+      <div class="label">Faturados por Mês (barras)</div>
+      <canvas id="chartAno"></canvas>
+    </div>
+  </section>
+
+  <!-- ABA: MÊS/Ano -->
+  <section id="mes" class="tabContent hidden">
+    <div class="toolbar">
+      <label>Mês/Ano: <select id="mesSelect"></select></label>
+      <button id="btnExportMes" class="btn">Exportar CSV do Mês</button>
+      <label>Busca (tabela do mês): <input id="searchMes" type="text" placeholder="Filtrar tabela do mês..." /></label>
+    </div>
+
+    <div class="row-title">Financeiro</div>
+    <div class="grid cols-4">
+      <div class="card kpi"><div class="label">Total Faturado</div><div id="m_kpi_faturado" class="val">—</div></div>
+      <div class="card kpi"><div class="label">A Faturar</div><div id="m_kpi_afaturar" class="val">—</div></div>
+      <div class="card kpi"><div class="label">Cancelado</div><div id="m_kpi_cancelado" class="val">—</div></div>
+      <div class="card kpi"><div class="label">Total</div><div id="m_kpi_total" class="val">—</div></div>
+    </div>
+
+    <div class="row-title">Controle</div>
+    <div class="grid cols-4">
+      <div class="card kpi"><div class="label">Total de Orçamentos</div><div id="m_kpi_total_orc" class="val">—</div></div>
+      <div class="card kpi"><div class="label">Em Análise</div><div id="m_kpi_analise" class="val">—</div></div>
+      <div class="card kpi"><div class="label">Autorizados</div><div id="m_kpi_autorizados" class="val">—</div></div>
+      <div class="card kpi"><div class="label">Faturados</div><div id="m_kpi_faturados" class="val">—</div></div>
+      <div class="card kpi"><div class="label">Cancelados</div><div id="m_kpi_cancelados" class="val">—</div></div>
+    </div>
+
+    <div class="row-title">Tempo (somente linhas com as 3 datas)</div>
+    <div class="grid cols-3">
+      <div class="card kpi"><div class="label">Ciclo Médio (dias)</div><div id="m_kpi_ciclo" class="val">—</div></div>
+      <div class="card kpi"><div class="label">Tempo Total Médio (dias)</div><div id="m_kpi_ttotal" class="val">—</div></div>
+      <div class="card kpi"><div class="label">Ticket Médio</div><div id="m_kpi_ticket" class="val">—</div></div>
+    </div>
+
+    <div class="card" style="margin-top:12px; overflow:auto;">
+      <div class="label">Tabela Base do Mês/Ano Selecionado (clique numa linha para ver o detalhe)</div>
+      <table id="mesTable"></table>
+    </div>
+  </section>
+
+  <!-- ABA: ANÁLISES -->
+  <section id="analises" class="tabContent hidden">
+    <div class="grid charts">
+      <div class="card">
+        <div class="label">Distribuição Financeira</div>
+        <canvas id="chartDistribFinanceira"></canvas>
+      </div>
+      <div class="card">
+        <div class="label">Pipeline / Controle</div>
+        <canvas id="chartPipeline"></canvas>
+      </div>
+      <div class="card">
+        <div class="label">Faturamento Acumulado (linha)</div>
+        <canvas id="chartAcumulado"></canvas>
+      </div>
+      <div class="card">
+        <div class="label">Top 10 Clientes por Faturamento</div>
+        <canvas id="chartTopClientes"></canvas>
+      </div>
+      <div class="card">
+        <div class="label">Histograma Tempo Total (dias)</div>
+        <canvas id="chartHistogramaTotal"></canvas>
+      </div>
+      <div class="card">
+        <div class="label">Mês × Controle (barras empilhadas)</div>
+        <canvas id="chartMesControle"></canvas>
+      </div>
+      <div class="card">
+        <div class="label">Conversão por Mês</div>
+        <canvas id="chartConversao"></canvas>
+      </div>
+      <div class="card">
+        <div class="label">Ticket Médio Mensal</div>
+        <canvas id="chartTicketMedio"></canvas>
+      </div>
+    </div>
+  </section>
+
+  <!-- ABA: TABELA BASE -->
+  <section id="tabela" class="tabContent hidden">
+    <div class="toolbar">
+      <label>Busca Global: <input id="searchBase" type="text" placeholder="Cliente, Placa, Veículo, Status..." /></label>
+      <button id="btnExportAll" class="btn">Exportar CSV (tudo)</button>
+    </div>
+    <div class="card" style="overflow:auto;">
+      <div class="label">Tabela Base Completa (clique numa linha para ver o detalhe)</div>
+      <table id="baseTable"></table>
+    </div>
+  </section>
+
+  <!-- ABA: DIAGNÓSTICO -->
+  <section id="diag" class="tabContent hidden">
+    <div class="card">
+      <div><strong>Progresso:</strong> <span id="diagProgress">Aguardando importação...</span></div>
+      <div><strong>Linhas importadas:</strong> <span id="diagLines">0</span></div>
+      <div><strong>Erros:</strong>
+        <ul id="diagErrors"></ul>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- Drawer de Detalhe -->
+<div id="drawer" class="drawer" aria-hidden="true">
+  <div class="drawer-header">
+    <div class="drawer-title" id="drawerTitle">Detalhe</div>
+    <div class="group">
+      <button id="btnCopy" class="btn">Copiar</button>
+      <button id="btnClose" class="btn">Fechar</button>
+    </div>
+  </div>
+  <div class="drawer-body">
+    <div class="drawer-tabs">
+      <button class="drawerTabBtn active" data-tab="det">Detalhes da OS</button>
+      <button class="drawerTabBtn" data-tab="hist">Histórico do Veículo</button>
+    </div>
+    <div id="drawerTab-det" class="drawerTab">
+      <div id="drawerBadges"></div>
+      <div class="card">
+        <div class="kv" id="drawerKV"></div>
+      </div>
+      <div class="card">
+        <div class="label">Timeline</div>
+        <div class="timeline" id="drawerTimeline"></div>
+      </div>
+      <div class="card">
+        <div class="label">Serviços</div>
+        <table id="drawerServicos">
+          <thead><tr><th>Descrição</th><th>Qtd</th><th>Preço Unit.</th><th>Total</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="card">
+        <div class="label">Peças</div>
+        <table id="drawerPecas">
+          <thead><tr><th>Descrição</th><th>Qtd</th><th>Preço Unit.</th><th>Total</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+    <div id="drawerTab-hist" class="drawerTab hidden">
+      <div class="card">
+        <table id="drawerHistoricoTable">
+          <thead><tr><th>Orçamento</th><th>Entrada</th><th>Status</th><th>Total</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="drawer-actions">
+    <div class="group">
+      <button id="btnPrev" class="btn">◀ Anterior</button>
+      <button id="btnNext" class="btn">Próximo ▶</button>
+    </div>
+    <div class="hint" id="drawerIndexHint">—</div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<script>
+/* =================== Tema =================== */
+function setTheme(mode){
+  const html = document.documentElement;
+  html.setAttribute('data-theme', mode);
+  localStorage.setItem('theme', mode);
+  const btn = document.getElementById('themeBtn');
+  if(btn) btn.textContent = (mode === 'dark') ? '☀️' : '🌙';
+  // Re-render dos gráficos para aplicar novas cores
+  updateChart(currentYearData());
+  updateAnalises();
+}
+function toggleTheme(){
+  const cur = document.documentElement.getAttribute('data-theme') || 'light';
+  setTheme(cur === 'light' ? 'dark' : 'light');
+}
+
+/* =================== Helpers =================== */
+function stripBOM(s){ return s && s.charCodeAt(0)===0xFEFF ? s.slice(1) : s; }
+function normalizeKey(s){
+  return stripBOM((s||"")
+    .toString()
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g,'')
+    .replace(/[^\w\s/.-]/g,' ')
+    .replace(/\s+/g,' ')
+  );
+}
+function normalizeVal(s){ return (s==null?'':String(s)).trim(); }
+function fmtMoney(v){ return (v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
+function fmtInt(v){ return (v||0).toLocaleString('pt-BR'); }
+
+/* =================== Parser CSV =================== */
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
+async function readFileSmart(file){
+  if (file.size > MAX_FILE_SIZE) {
+    const lim = (MAX_FILE_SIZE / (1024 * 1024)).toFixed(0);
+    const actual = (file.size / (1024 * 1024)).toFixed(2);
+    throw new Error(`Arquivo muito grande (${actual} MB). Limite de ${lim} MB.`);
+  }
+  // TODO: Consider incremental parsing (FileReader slices or Web Workers) to reduce peak memory usage
+  const buf = await file.arrayBuffer();
+  let text = new TextDecoder('utf-8', {fatal:false}).decode(new Uint8Array(buf));
+  const bad = (text.match(/\uFFFD/g)||[]).length;
+  if(bad > 10) {
+    try { text = new TextDecoder('iso-8859-1', {fatal:false}).decode(new Uint8Array(buf)); } catch(e){}
+  }
+  return text;
+}
+function detectSep(line){
+  const count = (sep)=>{
+    let c=0, q=false;
+    for(let i=0;i<line.length;i++){
+      const ch=line[i];
+      if(ch==='\"') q = !q;
+      else if(!q && ch===sep) c++;
+    }
+    return c;
+  };
+  const cComma = count(',');
+  const cSemi  = count(';');
+  return cSemi>cComma? ';' : ',';
+}
+function parseCSV(text){
+  text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  if(!text.trim()) return {header:[], rows:[]};
+  const sep = detectSep(text.split('\n')[0]);
+  const result = Papa.parse(text, {delimiter: sep, skipEmptyLines: true});
+  if(result.errors && result.errors.length){
+    throw new Error(result.errors[0].message);
+  }
+  if(!result.data.length) return {header:[], rows:[], sep};
+  const [header, ...rows] = result.data;
+  return {header, rows, sep};
+}
+
+/* =================== Mapeamento =================== */
+const HEADER_MAP = {
+  "numero do orcamento": ["numero do orcamento","número do orçamento","n do orcamento","id","orcamento"],
+  "cliente": ["cliente","nome do cliente"],
+  "placa": ["placa"],
+  "veiculo": ["veiculo","veículo"],
+  "data de entrada": ["data de entrada","entrada"],
+  "data de autorizacao": ["data de autorizacao","data de autorização","autorizacao","autorização"],
+  "data de fechamento": ["data de fechamento","fechamento"],
+  "data de saida": ["data de saida","data de saída","saida","saída","entregue"],
+  "etiqueta": ["etiqueta","tag","categoria"],
+  "status": ["status","situacao","situação","fase"],
+  "total cp": ["total cp","total da os","total do orçamento","valor total da os","valor total do orçamento"],
+  // Campos de itens
+  "tipo": ["tipo","tipo item","categoria"],
+  "descricao": ["descricao","descrição","item","descricao do item","descrição do item"],
+  "quantidade": ["quant./hrs.","quantidade","qtd","horas"],
+  "preco unitario": ["preco","preço","preco unitario","preço unitário","vlr unit"],
+  "total da linha": ["total","total do item","valor total"]
+};
+function buildHeaderIndex(headerCells){
+  const norm = headerCells.map(h => normalizeKey(h));
+  const index = {};
+  for(const [canon, aliases] of Object.entries(HEADER_MAP)){
+    let pos = -1;
+    for(const a of aliases){
+      const aNorm = normalizeKey(a);
+      const j = norm.findIndex(h => h.includes(aNorm));
+      if(j>=0){ pos=j; break; }
+    }
+    index[canon] = pos;
+  }
+  return index;
+}
+
+/* =================== Datas =================== */
+function onlyDatePart(s){
+  if(!s) return "";
+  s = String(s).trim();
+  const m = s.match(/(\d{4}-\d{2}-\d{2})|(\d{2}[/-]\d{2}[/-]\d{4})/);
+  return m ? m[0] : "";
+}
+function parseDateStrict(s){
+  s = onlyDatePart(s);
+  if(!s) return null;
+  if(/^\d{4}-\d{2}-\d{2}$/.test(s)){ // ISO
+    const [y,m,d] = s.split('-').map(Number);
+    return new Date(y, m-1, d);
+  }
+  if(/^\d{2}\/\d{2}\/\d{4}$/.test(s)){ // BR com /
+    const [d,m,y] = s.split('/').map(Number);
+    return new Date(y, m-1, d);
+  }
+  if(/^\d{2}-\d{2}-\d{4}$/.test(s)){ // BR com -
+    const [d,m,y] = s.split('-').map(Number);
+    return new Date(y, m-1, d);
+  }
+  return null;
+}
+function fmtDateBR(d){
+  if(!(d instanceof Date) || isNaN(d)) return "";
+  const dd = String(d.getDate()).padStart(2,'0');
+  const mm = String(d.getMonth()+1).padStart(2,'0');
+  const yy = d.getFullYear();
+  return `${dd}/${mm}/${yy}`;
+}
+
+/* =================== Classificação =================== */
+const MAP_ETIQUETA = {
+  "FATURAR JÁ EXECUTADO":   { fin: "A faturar",  ctrl: "Autorizado" },
+  "AG AUTORIZAÇÃO":         { fin: "A faturar",  ctrl: "Em análise" },
+  "APROVADO PELO CLIENTE":  { fin: "A faturar",  ctrl: "Autorizado" },
+  "FINALIZADO E FATURADO":  { fin: "Faturado",   ctrl: "Faturado" },
+  "AG ANÁLISE":             { fin: "A faturar",  ctrl: "Em análise" },
+  "LAVA JATO":              { fin: "A faturar",  ctrl: "Autorizado" },
+  "AG DESENVOLVIMENTO ORÇAMENTO": { fin: "A faturar", ctrl: "Em análise" },
+  "FINALIZADO":             { fin: "Faturado",   ctrl: "Faturado" },
+  "CANCELADO":              { fin: "Cancelado",  ctrl: "Cancelado" },
+  "AGUARDANDO CLIENTE":     { fin: "Cancelado",  ctrl: "Cancelado" }
+};
+const MAP_STATUS = {
+  "AG ANÁLISE":             { fin: "A faturar",  ctrl: "Em análise" },
+  "AG AUTORIZAÇÃO":         { fin: "A faturar",  ctrl: "Em análise" },
+  "AG COMPRA DE PEÇAS":     { fin: "A faturar",  ctrl: "Em análise" },
+  "AG RETIRADA":            { fin: "A faturar",  ctrl: "Autorizado" },
+  "SERVIÇO DE TERCEIROS":   { fin: "A faturar",  ctrl: "Autorizado" },
+  "ENTREGUE":               { fin: "Faturado",   ctrl: "Faturado" },
+  "EM MANUTENÇÃO":          { fin: "A faturar",  ctrl: "Autorizado" },
+  "AG ORÇAMENTO":           { fin: "A faturar",  ctrl: "Autorizado" },
+  "AG MANUTENÇÃO":          { fin: "A faturar",  ctrl: "Autorizado" },
+  "AG. CHEGADA DE PEÇA":    { fin: "A faturar",  ctrl: "Autorizado" },
+  "FINALIZADO":             { fin: "Faturado",   ctrl: "Faturado" },
+  "AGUARDANDO CLIENTE":     { fin: "Cancelado",  ctrl: "Cancelado" },
+  "FINALIZADO E FATURADO":  { fin: "Faturado",   ctrl: "Faturado" },
+  "CANCELADO":              { fin: "Cancelado",  ctrl: "Cancelado" },
+  "FATURAR JÁ EXECUTADO":   { fin: "A faturar",  ctrl: "Autorizado" },
+  "AG. PAGAMENTO":          { fin: "A faturar",  ctrl: "Autorizado" }
+};
+function normUp(s){ return (s||"").toString().trim().toUpperCase(); }
+function classifyRec(rec){
+  const etq = normUp(rec.Etiqueta);
+  const sts = normUp(rec.Status);
+  if(!etq || etq.includes("CANCELADO") || !sts || sts.includes("CANCELADO")){
+    return { fin:"Cancelado", ctrl:"Cancelado" };
+  }
+  if(MAP_ETIQUETA[etq]) return MAP_ETIQUETA[etq];
+  if(MAP_STATUS[sts])   return MAP_STATUS[sts];
+  return { fin: "A faturar", ctrl: "Em análise" };
+}
+
+/* =================== Estado =================== */
+let DATA = []; // preenchido na importação
+const headers = [
+  "Numero do Orçamento","Cliente","Placa","Veículo","Data de Entrada","Data de Autorização",
+  "Data de Fechamento","Data de Saída","Etiqueta","Status","Total CP",
+  "Tipo","Descrição","Quantidade","Preço Unitário","Total da Linha"
+];
+const diagProgress = document.getElementById('diagProgress');
+const diagLines = document.getElementById('diagLines');
+const diagErrors = document.getElementById('diagErrors');
+
+/* =================== Tabelas =================== */
+function renderFilterableTable(el, rows, onRowClick){
+  const thead = document.createElement('thead');
+  const trHead = document.createElement('tr');
+
+  const sortState = { col:null, dir:1 }; // 1 = asc, -1 = desc
+
+  headers.forEach(h=>{
+    const th = document.createElement("th");
+    th.textContent = h;
+    const ind = document.createElement('span'); ind.className = 'sort-ind';
+    th.appendChild(ind);
+    th.addEventListener('click', ()=>{
+      if(sortState.col===h){ sortState.dir*=-1; } else { sortState.col=h; sortState.dir=1; }
+      applyFiltersAndSort();
+      document.querySelectorAll('th .sort-ind').forEach(e=>e.textContent='');
+      ind.textContent = sortState.dir===1 ? '▲' : '▼';
+    });
+    trHead.appendChild(th);
+  });
+  thead.appendChild(trHead);
+
+  const trFilters = document.createElement('tr');
+  headers.forEach(h=>{
+    const th = document.createElement("th");
+    const input = document.createElement('input');
+    input.placeholder = "Filtrar "+h;
+    input.dataset.col = h;
+    input.addEventListener('input', ()=>applyFiltersAndSort());
+    th.appendChild(input);
+    trFilters.appendChild(th);
+  });
+  thead.appendChild(trFilters);
+
+  const tbody = document.createElement('tbody');
+  el.textContent = ""; // evita HTML bruto aparecer
+  el.appendChild(thead);
+  el.appendChild(tbody);
+
+  function drawBody(data){
+    tbody.textContent = "";
+    data.forEach((r, idx)=>{
+      const tr = document.createElement('tr');
+      tr.style.cursor = "pointer";
+      tr.addEventListener('click', ()=> onRowClick && onRowClick(r, idx, data));
+      headers.forEach(h=>{
+        const td = document.createElement('td');
+        if(h==="Total CP"){
+          const num = (typeof r[h]==='number') ? r[h] : parseMoneyCell(r[h]);
+          td.textContent = fmtMoney(num);
+        }else if(h.startsWith("Data ")){
+          const keyMap = {
+            "Data de Entrada":"_de",
+            "Data de Autorização":"_da",
+            "Data de Fechamento":"_df",
+            "Data de Saída":"_ds"
+          };
+          td.textContent = fmtDateBR(r[keyMap[h]]);
+        }else{
+          const v = r[h];
+          td.textContent = (v!=null?v:"");
+        }
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+  }
+
+  function getFilters(){
+    return Array.from(thead.querySelectorAll('input')).reduce((acc,inp)=>{
+      acc[inp.dataset.col] = (inp.value||"").toLowerCase();
+      return acc;
+    },{});
+  }
+
+  function applyFiltersAndSort(){
+    const filters = getFilters();
+    let filtered = rows.filter(r => {
+      return headers.every(h => {
+        const q = filters[h];
+        if(!q) return true;
+        let val = "";
+        if(h==="Total CP"){
+          val = String((typeof r[h]==='number'? r[h] : parseMoneyCell(r[h]))).toLowerCase();
+        }else if(h.startsWith("Data ")){
+          const keyMap = {"Data de Entrada":"_de","Data de Autorização":"_da","Data de Fechamento":"_df","Data de Saída":"_ds"};
+          val = fmtDateBR(r[keyMap[h]]).toLowerCase();
+        }else{
+          val = (r[h]==null? "": String(r[h])).toLowerCase();
+        }
+        return val.includes(q);
+      });
+    });
+
+    if(sortState.col){
+      const col = sortState.col;
+      const dir = sortState.dir;
+      filtered.sort((a,b)=>{
+        if(col==="Total CP"){
+          const av = (typeof a[col]==='number')?a[col]:parseMoneyCell(a[col]);
+          const bv = (typeof b[col]==='number')?b[col]:parseMoneyCell(b[col]);
+          return (av-bv)*dir;
+        }else if(col.startsWith("Data ")){
+          const map = {"Data de Entrada":"_de","Data de Autorização":"_da","Data de Fechamento":"_df","Data de Saída":"_ds"};
+          const av = a[map[col]] ? a[map[col]].getTime() : -Infinity;
+          const bv = b[map[col]] ? b[map[col]].getTime() : -Infinity;
+          return (av-bv)*dir;
+        }else if(col==="Numero do Orçamento"){
+          const na = Number(String(a[col]).replace(/\D/g,'')) || 0;
+          const nb = Number(String(b[col]).replace(/\D/g,'')) || 0;
+          if(na!==nb) return (na-nb)*dir;
+          return String(a[col]).localeCompare(String(b[col]))*dir;
+        }else{
+          return String(a[col]??"").localeCompare(String(b[col]??""))*dir;
+        }
+      });
+    }
+
+    drawBody(filtered);
+  }
+
+  drawBody(rows);
+  return { applyFiltersAndSort };
+}
+
+/* =================== Money =================== */
+function parseMoneyCell(v){
+  if (v == null) return 0;
+  if (typeof v === 'number') return v;
+  let s = normalizeVal(v);
+
+  // remove tudo que não seja dígito, separadores ou parênteses
+  s = s.replace(/[^0-9,.\-()]/g, '');
+
+  // negativo entre parênteses -> prefixa '-'
+  s = s.replace(/^\((.*)\)$/, '-$1');
+
+  // remove pontos de milhar e usa ponto como separador decimal
+  s = s.replace(/\./g, '').replace(',', '.');
+
+  const n = parseFloat(s);
+  return isNaN(n) ? 0 : n;
+}
+
+/* =================== Ano/Mês =================== */
+function ymKey(rec){
+  const base = rec._de || rec._ds;
+  if(!base) return null;
+  const y = base.getFullYear();
+  const m = (base.getMonth()+1).toString().padStart(2,"0");
+  return `${y}-${m}`;
+}
+function yearFrom(rec){
+  const base = rec._de || rec._ds;
+  return base ? base.getFullYear() : null;
+}
+function median(arr){
+  if(!arr.length) return 0;
+  const v = [...arr].sort((a,b)=>a-b);
+  const m = Math.floor(v.length/2);
+  return v.length%2 ? v[m] : (v[m-1]+v[m])/2;
+}
+function percentile(arr, p){
+  if(!arr.length) return 0;
+  const v = [...arr].sort((a,b)=>a-b);
+  const idx = (p/100)*(v.length-1);
+  const lo = Math.floor(idx), hi = Math.ceil(idx);
+  if(lo===hi) return v[lo];
+  return v[lo] + (v[hi]-v[lo])*(idx-lo);
+}
+
+/* =================== Métricas =================== */
+function computeMetrics(data, tempoAgg="media"){
+  let sumFaturado = 0, sumAFaturar = 0, sumCancelado = 0, sumTotal = 0;
+  let cntAnalise = 0, cntAutorizado = 0, cntFaturado = 0, cntCancelado = 0;
+
+  data.forEach(r => {
+    const cls = classifyRec(r);
+    const val = parseMoneyCell(r["Total CP"]);
+    sumTotal += val;
+
+    if (cls.fin === "Faturado")      sumFaturado += val;
+    else if (cls.fin === "A faturar") sumAFaturar += val;
+    else if (cls.fin === "Cancelado") sumCancelado += val;
+
+    if (cls.ctrl === "Em análise")   cntAnalise++;
+    else if (cls.ctrl === "Autorizado") cntAutorizado++;
+    else if (cls.ctrl === "Faturado")   cntFaturado++;
+    else if (cls.ctrl === "Cancelado")  cntCancelado++;
+  });
+
+  const totalOrc = data.length;
+  const naoCancelados = totalOrc - cntCancelado;
+  const conv = naoCancelados>0 ? (cntFaturado/naoCancelados) : 0;
+
+  const temposValidos = data.filter(r => r._de && r._da && r._ds);
+  const ciclos = temposValidos.map(r => (r._da - r._de) / (1000*60*60*24));
+  const totais = temposValidos.map(r => (r._ds - r._de) / (1000*60*60*24));
+
+  const cicloMedio = ciclos.length ? (tempoAgg==="mediana" ? median(ciclos) : ciclos.reduce((a,b)=>a+b,0)/ciclos.length) : 0;
+  const totalMedio = totais.length ? (tempoAgg==="mediana" ? median(totais) : totais.reduce((a,b)=>a+b,0)/totais.length) : 0;
+
+  const p50_ciclo = percentile(ciclos, 50), p90_ciclo = percentile(ciclos, 90);
+  const p50_total = percentile(totais, 50), p90_total = percentile(totais, 90);
+
+  const ticketMedio = totalOrc ? sumTotal / totalOrc : 0;
+
+  const byMonth = {};
+  data.forEach(r => {
+    const ym = ymKey(r);
+    if(!ym) return;
+    if(!byMonth[ym]) byMonth[ym] = { valores: [], count: 0 };
+    byMonth[ym].valores.push(parseMoneyCell(r["Total CP"]));
+    byMonth[ym].count++;
+  });
+
+  const mediaMesVal = Object.keys(byMonth).length ? 
+    Object.values(byMonth).reduce((acc, m) => acc + (m.valores.reduce((a,b)=>a+b,0)/m.valores.length), 0) / Object.keys(byMonth).length : 0;
+  
+  const mediaMesQtd = Object.keys(byMonth).length ? 
+    Object.values(byMonth).reduce((acc, m) => acc + m.count, 0) / Object.keys(byMonth).length : 0;
+
+  return {
+    sumFaturado, sumAFaturar, sumCancelado, sumTotal,
+    totalOrc, cntAnalise, cntAutorizado, cntFaturado, cntCancelado,
+    cicloMedio, totalMedio, p50_ciclo, p90_ciclo, p50_total, p90_total,
+    conv, ticketMedio, mediaMesVal, mediaMesQtd
+  };
+}
+
+/* =================== Importação =================== */
+async function importCSV(file){
+  try {
+    diagErrors.innerHTML = '';
+    diagProgress.textContent = 'Lendo arquivo...';
+    diagLines.textContent = '0';
+
+    const text = await readFileSmart(file);
+    const {header, rows} = parseCSV(text);
+    if(!header.length) throw new Error("CSV vazio ou inválido");
+
+    diagProgress.textContent = `Processando ${rows.length} linhas...`;
+    const index = buildHeaderIndex(header);
+    const recognized = headers.filter(h => index[normalizeKey(h)] >= 0);
+    if(!recognized.length) throw new Error("Cabeçalhos do CSV não reconhecidos");
+
+    const getIdx = (...names) => {
+      for(const n of names){
+        const pos = index[normalizeKey(n)];
+        if(pos >= 0) return pos;
+      }
+      return -1;
+    };
+
+    const idxTotalCP = getIdx('Total CP','Total da OS','Total do Orçamento','Valor total da OS','Valor total do orçamento');
+    const idxNumero = getIdx('Numero do Orçamento','Numero OS','Nº OS');
+    const idxTipo = getIdx('Tipo','Tipo de item','Tipo do item');
+    const idxDesc = getIdx('Descrição','Descricao','Descrição do item');
+    const idxQtd = getIdx('Quantidade','Qtd');
+    const idxPreco = getIdx('Preço','Preco','Preço Unitário','Valor Unitário');
+    const idxTot = getIdx('Total','Valor total','Total do item');
+
+    const map = new Map();
+    for(let i=0;i<rows.length;i++){
+      const row = rows[i];
+      const osRaw = idxNumero>=0 ? normalizeVal(row[idxNumero]) : '';
+      if(!osRaw) continue;
+      const osBase = osRaw.split('/')[0].trim();
+      const osKey = osBase.replace(/\D/g,'');
+      let rec = map.get(osKey);
+      if(!rec){
+        rec = {servicos:[], pecas:[], totalGeral:0, totalServicos:0, totalPecas:0};
+        headers.forEach(h => {
+          const pos = index[normalizeKey(h)];
+          rec[h] = pos >= 0 ? normalizeVal(row[pos]) : "";
+        });
+        rec["Total CP"] = 0;
+        if(idxTotalCP >= 0){
+          const v = parseMoneyCell(row[idxTotalCP]);
+          rec["Total CP"] = v > 0 ? v : 0;
+        }
+        rec._de = parseDateStrict(rec["Data de Entrada"]);
+        rec._da = parseDateStrict(rec["Data de Autorização"]);
+        rec._df = parseDateStrict(rec["Data de Fechamento"]);
+        rec._ds = parseDateStrict(rec["Data de Saída"]);
+        map.set(osKey, rec);
+      }
+
+      const tipo = idxTipo>=0 ? normalizeVal(row[idxTipo]) : '';
+      const item = {
+        tipo,
+        descricao: idxDesc>=0 ? normalizeVal(row[idxDesc]) : '',
+        quantidade: idxQtd>=0 ? parseFloat(normalizeVal(row[idxQtd]).replace('.', '').replace(',', '.'))||0 : 0,
+        preco: idxPreco>=0 ? parseMoneyCell(row[idxPreco]) : 0,
+        total: idxTot>=0 ? parseMoneyCell(row[idxTot]) : 0
+      };
+
+      rec.totalGeral += item.total;
+      if(tipo.toLowerCase().startsWith('s')){
+        rec.servicos.push(item);
+        rec.totalServicos += item.total;
+      }else{
+        rec.pecas.push(item);
+        rec.totalPecas += item.total;
+      }
+
+      if((i+1)%100===0 || i===rows.length-1){
+        diagProgress.textContent = `Processando ${i+1}/${rows.length}`;
+      }
+    }
+
+    for(const rec of map.values()){
+      if(rec["Total CP"] === 0){
+        rec["Total CP"] = rec.totalGeral;
+      }
+    }
+
+    DATA = Array.from(map.values());
+    diagLines.textContent = String(DATA.length);
+    diagProgress.textContent = 'Concluído';
+
+    updateYearSelect();
+    updateMonthSelect();
+    updateBaseTable();
+    updateAnoView();
+    updateMesView();
+    updateAnalises();
+    return true;
+  } catch (e) {
+    diagProgress.textContent = 'Erro';
+    diagErrors.innerHTML += `<li>${e.message}</li>`;
+    console.error("Erro na importação:", e);
+    alert("Erro ao importar CSV: " + e.message);
+    return false;
+  }
+}
+
+/* =================== Interface =================== */
+function updateYearSelect(){
+  const sel = document.getElementById('anoSelect');
+  const years = [...new Set(DATA.map(yearFrom).filter(Boolean))].sort((a,b)=>b-a);
+  sel.textContent = '';
+  years.forEach(y => {
+    const opt = document.createElement('option');
+    opt.value = y;
+    opt.textContent = y;
+    sel.appendChild(opt);
+  });
+  if(years.length) sel.value = years[0];
+}
+function updateMonthSelect(){
+  const sel = document.getElementById('mesSelect');
+  const months = [...new Set(DATA.map(ymKey).filter(Boolean))].sort().reverse();
+  sel.textContent = '';
+  months.forEach(ym => {
+    const [y,m] = ym.split('-');
+    const monthName = new Date(y, m-1).toLocaleDateString('pt-BR', {month:'long', year:'numeric'});
+    const opt = document.createElement('option');
+    opt.value = ym;
+    opt.textContent = monthName;
+    sel.appendChild(opt);
+  });
+}
+
+function currentYearData(){
+  const y = parseInt(document.getElementById('anoSelect').value);
+  if(!y) return [];
+  const clienteFilter = (document.getElementById('searchCliente').value||"").toLowerCase();
+  let filtered = DATA.filter(r => yearFrom(r) === y);
+  if(clienteFilter){
+    filtered = filtered.filter(r => (r.Cliente||"").toLowerCase().includes(clienteFilter));
+  }
+  return filtered;
+}
+
+function updateAnoView(){
+  const tempoAgg = document.getElementById('tempoAgg').value;
+  const filtered = currentYearData();
+  const metrics = computeMetrics(filtered, tempoAgg);
+  
+  document.getElementById('kpi_faturado').textContent = fmtMoney(metrics.sumFaturado);
+  document.getElementById('kpi_afaturar').textContent = fmtMoney(metrics.sumAFaturar);
+  document.getElementById('kpi_cancelado').textContent = fmtMoney(metrics.sumCancelado);
+  document.getElementById('kpi_total').textContent = fmtMoney(metrics.sumTotal);
+  
+  document.getElementById('kpi_total_orc').textContent = fmtInt(metrics.totalOrc);
+  document.getElementById('kpi_analise').textContent = fmtInt(metrics.cntAnalise);
+  document.getElementById('kpi_autorizados').textContent = fmtInt(metrics.cntAutorizado);
+  document.getElementById('kpi_faturados').textContent = fmtInt(metrics.cntFaturado);
+  document.getElementById('kpi_cancelados').textContent = fmtInt(metrics.cntCancelado);
+  
+  document.getElementById('kpi_ciclo').textContent = metrics.cicloMedio.toFixed(1);
+  document.getElementById('kpi_ttotal').textContent = metrics.totalMedio.toFixed(1);
+  document.getElementById('kpi_ticket').textContent = fmtMoney(metrics.ticketMedio);
+  document.getElementById('kpi_media_mes_val').textContent = fmtMoney(metrics.mediaMesVal);
+  document.getElementById('kpi_media_mes_qtd').textContent = metrics.mediaMesQtd.toFixed(1);
+  document.getElementById('kpi_conv').textContent = (metrics.conv*100).toFixed(1) + '%';
+  document.getElementById('kpi_p_ciclo').textContent = `${metrics.p50_ciclo.toFixed(1)} / ${metrics.p90_ciclo.toFixed(1)}`;
+  document.getElementById('kpi_p_total').textContent = `${metrics.p50_total.toFixed(1)} / ${metrics.p90_total.toFixed(1)}`;
+
+  updateChart(filtered);
+  updateAnalises();
+}
+
+function updateMesView(){
+  const ym = document.getElementById('mesSelect').value;
+  if(!ym) return;
+  const filtered = DATA.filter(r => ymKey(r) === ym);
+  const metrics = computeMetrics(filtered);
+  
+  document.getElementById('m_kpi_faturado').textContent = fmtMoney(metrics.sumFaturado);
+  document.getElementById('m_kpi_afaturar').textContent = fmtMoney(metrics.sumAFaturar);
+  document.getElementById('m_kpi_cancelado').textContent = fmtMoney(metrics.sumCancelado);
+  document.getElementById('m_kpi_total').textContent = fmtMoney(metrics.sumTotal);
+  
+  document.getElementById('m_kpi_total_orc').textContent = fmtInt(metrics.totalOrc);
+  document.getElementById('m_kpi_analise').textContent = fmtInt(metrics.cntAnalise);
+  document.getElementById('m_kpi_autorizados').textContent = fmtInt(metrics.cntAutorizado);
+  document.getElementById('m_kpi_faturados').textContent = fmtInt(metrics.cntFaturado);
+  document.getElementById('m_kpi_cancelados').textContent = fmtInt(metrics.cntCancelado);
+  
+  document.getElementById('m_kpi_ciclo').textContent = metrics.cicloMedio.toFixed(1);
+  document.getElementById('m_kpi_ttotal').textContent = metrics.totalMedio.toFixed(1);
+  document.getElementById('m_kpi_ticket').textContent = fmtMoney(metrics.ticketMedio);
+
+  updateMesTable(filtered);
+}
+
+/* ===== Detalhe (Drawer) ===== */
+let mesTableController = null;
+let baseTableController = null;
+let drawerDataRef = { list:[], index:-1 };
+
+function showDrawerTab(tab){
+  document.querySelectorAll('.drawerTabBtn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tab === tab);
+  });
+  document.querySelectorAll('.drawerTab').forEach(div => {
+    div.classList.toggle('hidden', div.id !== `drawerTab-${tab}`);
+  });
+}
+
+function updateMesTable(data){
+  const el = document.getElementById('mesTable');
+  mesTableController = renderFilterableTable(el, data, openDrawerWith);
+  const searchInput = document.getElementById('searchMes');
+  searchInput.oninput = () => {
+    const query = searchInput.value.toLowerCase();
+    const inputs = el.querySelectorAll('thead input');
+    inputs.forEach(inp => inp.value = '');
+    if(query) { inputs[1].value = query; } // Cliente
+    mesTableController.applyFiltersAndSort();
+  };
+}
+
+function updateBaseTable(){
+  const el = document.getElementById('baseTable');
+  baseTableController = renderFilterableTable(el, DATA, openDrawerWith);
+  const searchInput = document.getElementById('searchBase');
+  searchInput.oninput = () => {
+    const query = searchInput.value.toLowerCase();
+    const inputs = el.querySelectorAll('thead input');
+    inputs.forEach(inp => inp.value = '');
+    if(query) {
+      inputs[1].value = query; // Cliente
+      inputs[2].value = query; // Placa
+      inputs[3].value = query; // Veículo
+      inputs[9].value = query; // Status
+    }
+    baseTableController.applyFiltersAndSort();
+  };
+}
+
+function openDrawerWith(row, idx, list){
+  renderDrawer(row, list, idx);
+  document.getElementById('drawer').classList.add('open');
+  document.getElementById('drawer').setAttribute('aria-hidden','false');
+}
+function closeDrawer(){
+  document.getElementById('drawer').classList.remove('open');
+  document.getElementById('drawer').setAttribute('aria-hidden','true');
+}
+function navDrawer(delta){
+  if(!drawerDataRef.list.length) return;
+  drawerDataRef.index = (drawerDataRef.index + delta + drawerDataRef.list.length) % drawerDataRef.list.length;
+  renderDrawer(drawerDataRef.list[drawerDataRef.index]);
+}
+
+function renderDrawer(r, list=null, idx=null){
+  if(list){
+    drawerDataRef = { list, index: idx };
+  }
+  showDrawerTab('det');
+  document.getElementById('drawerTitle').textContent = `Orçamento ${r["Numero do Orçamento"] || "—"}`;
+  const cls = classifyRec(r);
+
+  const badgeContainer = document.getElementById('drawerBadges');
+  badgeContainer.textContent = '';
+  const badgeFin = document.createElement('span');
+  badgeFin.className = `pill fin-${cls.fin.replace(' ','\\ ')}`;
+  badgeFin.textContent = `Financeiro: ${cls.fin}`;
+  const badgeCtrl = document.createElement('span');
+  badgeCtrl.className = `pill ctrl-${cls.ctrl.replace(' ','\\ ')}`;
+  badgeCtrl.textContent = `Controle: ${cls.ctrl}`;
+  badgeContainer.append(badgeFin, badgeCtrl);
+
+  const kvEl = document.getElementById('drawerKV');
+  kvEl.textContent = '';
+  const pairs = [
+    ['Cliente', r.Cliente || '—'],
+    ['Placa', r.Placa || '—'],
+    ['Veículo', r["Veículo"] || r["Veiculo"] || '—'],
+    ['Etiqueta', r.Etiqueta || '—'],
+    ['Status', r.Status || '—'],
+    ['Entrada', fmtDateBR(r._de)],
+    ['Autorização', fmtDateBR(r._da)],
+    ['Fechamento', fmtDateBR(r._df)],
+    ['Saída', fmtDateBR(r._ds)]
+  ];
+  pairs.forEach(([k,v]) => {
+    const kdiv = document.createElement('div');
+    kdiv.className = 'k';
+    kdiv.textContent = k;
+    kvEl.appendChild(kdiv);
+    const vdiv = document.createElement('div');
+    vdiv.textContent = v;
+    kvEl.appendChild(vdiv);
+  });
+  const kdiv = document.createElement('div');
+  kdiv.className = 'k';
+  kdiv.textContent = 'Valor Total';
+  kvEl.appendChild(kdiv);
+  const vdiv = document.createElement('div');
+  const strong = document.createElement('strong');
+  strong.textContent = fmtMoney(parseMoneyCell(r["Total CP"]));
+  vdiv.appendChild(strong);
+  kvEl.appendChild(vdiv);
+
+  // Timeline: barra proporcional entre datas (se existirem)
+  const tlEl = document.getElementById('drawerTimeline');
+  tlEl.textContent = '';
+  const hasAll = r._de && r._da && r._ds;
+  if(hasAll){
+    const msCiclo = r._da - r._de;
+    const msFinal = r._ds - r._de;
+    const p = Math.max(1, msFinal); // evitar /0
+    const cicloPct = Math.max(0, Math.min(1, msCiclo/p))*100;
+
+    const trow1 = document.createElement('div');
+    trow1.className = 'trow';
+    const dot1 = document.createElement('span');
+    dot1.className = 'dot';
+    dot1.style.background = 'var(--info)';
+    const div1 = document.createElement('div');
+    div1.textContent = `Entrada: ${fmtDateBR(r._de)}`;
+    trow1.append(dot1, div1);
+    tlEl.appendChild(trow1);
+
+    const bar1 = document.createElement('div');
+    bar1.className = 'bar';
+    const seg = document.createElement('span');
+    seg.className = 'seg';
+    seg.style.left = '0';
+    seg.style.width = `${cicloPct}%`;
+    bar1.appendChild(seg);
+    tlEl.appendChild(bar1);
+
+    const trow2 = document.createElement('div');
+    trow2.className = 'trow';
+    const dot2 = document.createElement('span');
+    dot2.className = 'dot';
+    dot2.style.background = 'var(--warn)';
+    const div2 = document.createElement('div');
+    div2.textContent = `Autorização: ${fmtDateBR(r._da)} (${(msCiclo/86400000).toFixed(1)} dias)`;
+    trow2.append(dot2, div2);
+    tlEl.appendChild(trow2);
+
+    const bar2 = document.createElement('div');
+    bar2.className = 'bar';
+    tlEl.appendChild(bar2);
+
+    const trow3 = document.createElement('div');
+    trow3.className = 'trow';
+    const dot3 = document.createElement('span');
+    dot3.className = 'dot';
+    dot3.style.background = 'var(--ok)';
+    const div3 = document.createElement('div');
+    div3.textContent = `Saída: ${fmtDateBR(r._ds)} (Total ${(msFinal/86400000).toFixed(1)} dias)`;
+    trow3.append(dot3, div3);
+    tlEl.appendChild(trow3);
+  } else {
+    const hint = document.createElement('div');
+    hint.className = 'hint';
+    hint.textContent = 'Sem datas suficientes para montar a linha do tempo.';
+    tlEl.appendChild(hint);
+  }
+
+  const servBody = document.querySelector('#drawerServicos tbody');
+  servBody.textContent = '';
+  const servicos = r.servicos || [];
+  if(servicos.length){
+    servicos.forEach(s => {
+      const tr = document.createElement('tr');
+      const desc = s.descricao || s['Descrição'] || s.item || '—';
+      const qtd = s.quantidade || s.qtd || s.q || 0;
+      const preco = s.preco || s.precoUnit || s.preco_unit || s.preço || 0;
+      const total = s.total || (qtd * preco);
+      tr.innerHTML = `<td>${desc}</td><td>${fmtInt(qtd)}</td><td>${fmtMoney(preco)}</td><td>${fmtMoney(total)}</td>`;
+      servBody.appendChild(tr);
+    });
+  } else {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 4; td.className = 'hint'; td.textContent = 'Sem serviços';
+    tr.appendChild(td); servBody.appendChild(tr);
+  }
+
+  const pecBody = document.querySelector('#drawerPecas tbody');
+  pecBody.textContent = '';
+  const pecas = r.pecas || [];
+  if(pecas.length){
+    pecas.forEach(p => {
+      const tr = document.createElement('tr');
+      const desc = p.descricao || p['Descrição'] || p.item || '—';
+      const qtd = p.quantidade || p.qtd || p.q || 0;
+      const preco = p.preco || p.precoUnit || p.preco_unit || p.preço || 0;
+      const total = p.total || (qtd * preco);
+      tr.innerHTML = `<td>${desc}</td><td>${fmtInt(qtd)}</td><td>${fmtMoney(preco)}</td><td>${fmtMoney(total)}</td>`;
+      pecBody.appendChild(tr);
+    });
+  } else {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 4; td.className = 'hint'; td.textContent = 'Sem peças';
+    tr.appendChild(td); pecBody.appendChild(tr);
+  }
+
+  const histBody = document.querySelector('#drawerHistoricoTable tbody');
+  histBody.textContent = '';
+  const historico = DATA.filter(o => o.Placa === r.Placa).sort((a,b)=>(b._de||0)-(a._de||0));
+  historico.forEach((o,i)=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${o["Numero do Orçamento"]||'—'}</td><td>${fmtDateBR(o._de)}</td><td>${o.Status||'—'}</td><td>${fmtMoney(parseMoneyCell(o["Total CP"]))}</td>`;
+    tr.addEventListener('click', ()=>renderDrawer(o, historico, i));
+    histBody.appendChild(tr);
+  });
+
+  document.getElementById('drawerIndexHint').textContent = `${drawerDataRef.index+1} / ${drawerDataRef.list.length}`;
+}
+
+/* =================== Gráfico Ano =================== */
+let chartInstance = null;
+function chartColors(){
+  const styles = getComputedStyle(document.documentElement);
+  const text = styles.getPropertyValue('--mh-text').trim() || '#333';
+  const muted = styles.getPropertyValue('--mh-muted').trim() || '#6c757d';
+  return { text, muted };
+}
+function updateChart(data){
+  const canvas = document.getElementById('chartAno');
+  if(!canvas) return;
+  const ctx = canvas.getContext('2d');
+  if(chartInstance) { chartInstance.destroy(); }
+
+  const byMonth = {};
+  data.forEach(r => {
+    const ym = ymKey(r);
+    if(!ym) return;
+    if(!byMonth[ym]) byMonth[ym] = 0;
+    const cls = classifyRec(r);
+    if(cls.fin === "Faturado") {
+      byMonth[ym] += parseMoneyCell(r["Total CP"]);
+    }
+  });
+
+  const sortedMonths = Object.keys(byMonth).sort();
+  const labels = sortedMonths.map(ym => {
+    const [y,m] = ym.split('-');
+    return new Date(y, m-1).toLocaleDateString('pt-BR', {month:'short', year:'2-digit'});
+  });
+  const values = sortedMonths.map(ym => byMonth[ym]);
+
+  const { text, muted } = chartColors();
+
+  chartInstance = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Faturamento',
+        data: values,
+        borderColor: '#38bdf8',
+        backgroundColor: 'rgba(56, 189, 248, 0.15)',
+        borderWidth: 1,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { color: text } },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => 'R$ ' + (ctx.parsed.y||0).toLocaleString('pt-BR')
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color: muted },
+          grid: { color: muted + '30' }
+        },
+        y: {
+          ticks: {
+            color: muted,
+            callback: (value) => 'R$ ' + Number(value||0).toLocaleString('pt-BR')
+          },
+          grid: { color: muted + '30' }
+        }
+      }
+    }
+  });
+}
+
+/* =================== Análises (múltiplos gráficos) =================== */
+let chartsAnalises = {};
+function destroyAnalises(){
+  Object.values(chartsAnalises).forEach(ch=>{ try{ ch.destroy(); }catch(e){} });
+  chartsAnalises = {};
+}
+function groupBy(arr, keyFn){
+  const m = {};
+  arr.forEach(x=>{
+    const k = keyFn(x);
+    if(k==null) return;
+    if(!m[k]) m[k]=[];
+    m[k].push(x);
+  });
+  return m;
+}
+function sum(arr, sel){ return arr.reduce((a,b)=>a+sel(b),0); }
+
+function updateAnalises(){
+  const data = currentYearData();
+  const { text, muted } = chartColors();
+  destroyAnalises();
+
+  // Distribuição Financeira
+  const finTotals = { "Faturado":0, "A faturar":0, "Cancelado":0 };
+  data.forEach(r=>{
+    const cls = classifyRec(r);
+    finTotals[cls.fin] += parseMoneyCell(r["Total CP"]);
+  });
+  chartsAnalises.distrib = new Chart(document.getElementById('chartDistribFinanceira'), {
+    type: 'doughnut',
+    data: {
+      labels: Object.keys(finTotals),
+      datasets: [{ data: Object.values(finTotals) }]
+    },
+    options: {
+      plugins: { legend: { labels: { color: text } },
+        tooltip: { callbacks: { label: (ctx)=> ctx.label+': '+fmtMoney(ctx.parsed) } } }
+    }
+  });
+
+  // Pipeline / Controle
+  const ctrlCounts = { "Em análise":0, "Autorizado":0, "Faturado":0, "Cancelado":0 };
+  data.forEach(r=>{ ctrlCounts[classifyRec(r).ctrl]++; });
+  chartsAnalises.pipeline = new Chart(document.getElementById('chartPipeline'), {
+    type: 'bar',
+    data: {
+      labels: Object.keys(ctrlCounts),
+      datasets: [{ label:'Qtd', data: Object.values(ctrlCounts) }]
+    },
+    options: {
+      plugins: { legend:{labels:{color:text}} },
+      scales: { x:{ ticks:{color:muted}, grid:{color:muted+'30'}}, y:{ ticks:{color:muted}, grid:{color:muted+'30'} } }
+    }
+  });
+
+  // Faturamento Acumulado
+  const byMonth = {};
+  data.forEach(r=>{
+    const ym = ymKey(r);
+    if(!ym) return;
+    const cls = classifyRec(r);
+    if(cls.fin!=="Faturado") return;
+    if(!byMonth[ym]) byMonth[ym]=0;
+    byMonth[ym]+=parseMoneyCell(r["Total CP"]);
+  });
+  const months = Object.keys(byMonth).sort();
+  const vals = months.map(m=>byMonth[m]);
+  const acum = [];
+  vals.reduce((a,b,i)=>{ acum[i]=a+b; return acum[i]; },0);
+  chartsAnalises.acum = new Chart(document.getElementById('chartAcumulado'), {
+    type: 'line',
+    data: { labels: months.map(ym => {
+      const [y,m]=ym.split('-'); return new Date(y,m-1).toLocaleDateString('pt-BR',{month:'short',year:'2-digit'});
+    }), datasets:[{ label:'Acumulado', data:acum, fill:false, tension:.25 }] },
+    options: {
+      plugins:{ legend:{labels:{color:text}}, tooltip:{callbacks:{ label:(c)=>fmtMoney(c.parsed.y)}}},
+      scales:{ x:{ticks:{color:muted}}, y:{ticks:{color:muted, callback:(v)=>'R$ '+Number(v).toLocaleString('pt-BR')}} }
+    }
+  });
+
+  // Top 10 Clientes por Faturamento
+  const faturados = data.filter(r=>classifyRec(r).fin==='Faturado');
+  const byCli = {};
+  faturados.forEach(r=>{
+    const k = r.Cliente||'—';
+    byCli[k]=(byCli[k]||0)+parseMoneyCell(r["Total CP"]);
+  });
+  const top = Object.entries(byCli).sort((a,b)=>b[1]-a[1]).slice(0,10);
+  chartsAnalises.topcli = new Chart(document.getElementById('chartTopClientes'), {
+    type:'bar',
+    data:{ labels: top.map(x=>x[0]), datasets:[{ label:'Faturado', data: top.map(x=>x[1]) }] },
+    options:{
+      indexAxis:'y',
+      plugins:{ legend:{labels:{color:text}}, tooltip:{callbacks:{label:(c)=>fmtMoney(c.parsed.x||c.parsed.y)}}},
+      scales:{ x:{ticks:{color:muted, callback:(v)=>'R$ '+Number(v).toLocaleString('pt-BR')}}, y:{ticks:{color:muted}} }
+    }
+  });
+
+  // Histograma Tempo Total (dias)
+  const temposValidos = data.filter(r=>r._de && r._ds).map(r=>(r._ds - r._de)/86400000);
+  const bins = 10;
+  const maxT = temposValidos.length ? Math.max(...temposValidos) : 0;
+  const step = maxT>0 ? Math.ceil(maxT/bins) : 1;
+  const labelsH = Array.from({length:bins},(_,i)=>`${i*step}-${(i+1)*step}`);
+  const countsH = new Array(bins).fill(0);
+  temposValidos.forEach(v=>{
+    const idx = Math.min(bins-1, Math.floor(v/step));
+    countsH[idx]++;
+  });
+  chartsAnalises.hist = new Chart(document.getElementById('chartHistogramaTotal'),{
+    type:'bar',
+    data:{ labels:labelsH, datasets:[{ label:'Qtd', data:countsH }]},
+    options:{ plugins:{ legend:{labels:{color:text}}}, scales:{ x:{ticks:{color:muted}}, y:{ticks:{color:muted}} } }
+  });
+
+  // Mês × Controle (empilhado) e métricas mensais
+  const meses = [...new Set(data.map(ymKey).filter(Boolean))].sort();
+
+  // Conversão por Mês
+  const convVals = meses.map(m=>{
+    const recs = data.filter(r=>ymKey(r)===m);
+    const total = recs.length;
+    const cancel = recs.filter(r=>classifyRec(r).ctrl==='Cancelado').length;
+    const fatur = recs.filter(r=>classifyRec(r).ctrl==='Faturado').length;
+    const nc = total - cancel;
+    return nc>0 ? (fatur/nc)*100 : 0;
+  });
+  chartsAnalises.conversao = new Chart(document.getElementById('chartConversao'),{
+    type:'bar',
+    data:{ labels: meses.map(ym => { const [y,m]=ym.split('-'); return new Date(y,m-1).toLocaleDateString('pt-BR',{month:'short'}); }), datasets:[{ label:'% Conversão', data: convVals }] },
+    options:{
+      plugins:{ legend:{labels:{color:text}}, tooltip:{callbacks:{ label:(c)=>c.parsed.y.toFixed(1)+'%'}} },
+      scales:{ x:{ticks:{color:muted}}, y:{ticks:{color:muted, callback:(v)=>v+'%'} } }
+    }
+  });
+
+  // Ticket Médio Mensal
+  const ticketVals = meses.map(m=>{
+    const recs = data.filter(r=>ymKey(r)===m);
+    const total = recs.reduce((a,b)=>a+parseMoneyCell(b["Total CP"]),0);
+    return recs.length ? total/recs.length : 0;
+  });
+  chartsAnalises.ticket = new Chart(document.getElementById('chartTicketMedio'),{
+    type:'line',
+    data:{ labels: meses.map(ym => { const [y,m]=ym.split('-'); return new Date(y,m-1).toLocaleDateString('pt-BR',{month:'short'}); }), datasets:[{ label:'Ticket Médio', data: ticketVals, fill:false, tension:.25 }] },
+    options:{
+      plugins:{ legend:{labels:{color:text}}, tooltip:{callbacks:{ label:(c)=>fmtMoney(c.parsed.y)}} },
+      scales:{ x:{ticks:{color:muted}}, y:{ticks:{color:muted, callback:(v)=>'R$ '+Number(v).toLocaleString('pt-BR')} } }
+    }
+  });
+
+  const controles = ["Em análise","Autorizado","Faturado","Cancelado"];
+  const datasetStack = controles.map(cn=>{
+    return {
+      label: cn,
+      data: meses.map(m=>{
+        return data.filter(r=>ymKey(r)===m && classifyRec(r).ctrl===cn).length;
+      }),
+      stack: 'stack1'
+    };
+  });
+  chartsAnalises.mesctrl = new Chart(document.getElementById('chartMesControle'),{
+    type:'bar',
+    data:{ labels: meses.map(ym => { const [y,m]=ym.split('-'); return new Date(y,m-1).toLocaleDateString('pt-BR',{month:'short'}); }), datasets: datasetStack },
+    options:{
+      plugins:{ legend:{labels:{color:text}} },
+      responsive:true,
+      scales:{ x:{ stacked:true, ticks:{color:muted} }, y:{ stacked:true, ticks:{color:muted}} }
+    }
+  });
+}
+
+/* =================== Export CSV =================== */
+function exportCSV(data, filename){
+  const headersExp = [
+    "Numero do Orçamento","Cliente","Placa","Veículo","Data de Entrada","Data de Autorização",
+    "Data de Fechamento","Data de Saída","Etiqueta","Status","Total CP",
+    "Tipo","Descrição","Quantidade","Preço Unitário","Total da Linha"
+  ];
+  const rows = [headersExp];
+  data.forEach(r => {
+    const row = headersExp.map(h => {
+      if(h.startsWith("Data ")) {
+        const keyMap = {"Data de Entrada":"_de","Data de Autorização":"_da","Data de Fechamento":"_df","Data de Saída":"_ds"};
+        return fmtDateBR(r[keyMap[h]]);
+      } else if(h === "Total CP") {
+        return parseMoneyCell(r[h]).toFixed(2).replace('.', ',');
+      } else {
+        return r[h] || "";
+      }
+    });
+    rows.push(row);
+  });
+  const csv = rows.map(row => row.map(cell => `"${cell}"`).join(';')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  link.click();
+}
+
+/* =================== Abas =================== */
+function showTab(tabName) {
+  document.querySelectorAll('.tabContent').forEach(tab => tab.classList.add('hidden'));
+  document.querySelectorAll('.tabBtn').forEach(btn => btn.classList.remove('active'));
+  document.getElementById(tabName).classList.remove('hidden');
+  document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+}
+
+/* =================== Logo =================== */
+async function readAsDataURL(file){
+  return new Promise((res, rej)=>{
+    const fr = new FileReader();
+    fr.onerror = rej;
+    fr.onload = () => res(fr.result);
+    fr.readAsDataURL(file);
+  });
+}
+async function handleLogoFile(file){
+  if(!file) return;
+  let dataUrl;
+  try{
+    dataUrl = await readAsDataURL(file);
+  }catch(e){
+    console.error('Falha ao ler arquivo da logo.', e);
+    alert('Não foi possível ler o arquivo da logo.');
+    return;
+  }
+  try{
+    localStorage.setItem('companyLogoDataUrl', dataUrl);
+  }catch(e){
+    console.warn('Não foi possível persistir a logo no localStorage.', e);
+    alert('Não foi possível salvar a logo no navegador.');
+  }
+  applyLogo(dataUrl);
+}
+function applyLogo(src){
+  const img = document.getElementById('companyLogo');
+  const fallback = document.getElementById('noLogo');
+  if(src){
+    img.src = src;
+    img.classList.remove('hidden');
+    fallback.classList.add('hidden');
+  }else{
+    img.classList.add('hidden');
+    fallback.classList.remove('hidden');
+  }
+}
+
+/* =================== Boot =================== */
+document.addEventListener('DOMContentLoaded', () => {
+  // Tema inicial
+  const savedTheme = localStorage.getItem('theme') || 'light';
+  setTheme(savedTheme);
+
+  // Logo inicial
+  const storedLogo = localStorage.getItem('companyLogoDataUrl');
+  if(storedLogo){
+    const img = new Image();
+    img.onload = () => applyLogo(storedLogo);
+    img.onerror = () => {
+      localStorage.removeItem('companyLogoDataUrl');
+      console.warn('Logo inválida removida do localStorage.');
+    };
+    img.src = storedLogo;
+  }
+
+  // Listeners gerais
+  document.getElementById('themeBtn').addEventListener('click', toggleTheme);
+
+  const logoInput = document.getElementById('logoInput');
+  logoInput.addEventListener('change', (e)=> {
+    handleLogoFile(e.target.files[0]);
+    e.target.value = '';
+  });
+
+  const fileInput = document.getElementById('fileInput');
+  fileInput.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if(file) {
+      showTab('diag');
+      const success = await importCSV(file);
+      if(success) showTab('ano');
+    }
+  });
+
+  document.querySelectorAll('.tabBtn').forEach(btn => {
+    btn.addEventListener('click', () => showTab(btn.dataset.tab));
+  });
+
+  document.getElementById('anoSelect').addEventListener('change', ()=>{ updateAnoView(); updateAnalises(); });
+  document.getElementById('searchCliente').addEventListener('input', ()=>{ updateAnoView(); updateAnalises(); });
+  document.getElementById('tempoAgg').addEventListener('change', ()=>{ updateAnoView(); updateAnalises(); });
+  document.getElementById('mesSelect').addEventListener('change', updateMesView);
+
+  document.getElementById('btnExportMes').addEventListener('click', () => {
+    const ym = document.getElementById('mesSelect').value;
+    if(!ym) return;
+    const filtered = DATA.filter(r => ymKey(r) === ym);
+    exportCSV(filtered, `orcamentos_${ym}.csv`);
+  });
+  document.getElementById('btnExportAll').addEventListener('click', () => exportCSV(DATA, 'orcamentos_completo.csv'));
+
+  // Drawer controls
+  document.getElementById('btnClose').addEventListener('click', closeDrawer);
+  document.getElementById('btnPrev').addEventListener('click', ()=>navDrawer(-1));
+  document.getElementById('btnNext').addEventListener('click', ()=>navDrawer(+1));
+  document.querySelectorAll('.drawerTabBtn').forEach(btn=>{
+    btn.addEventListener('click', ()=>showDrawerTab(btn.dataset.tab));
+  });
+
+  const btnCopy = document.getElementById('btnCopy');
+  if(navigator.clipboard && navigator.clipboard.writeText) {
+    btnCopy.addEventListener('click', ()=>{
+      if(drawerDataRef.index<0) return;
+      const r = drawerDataRef.list[drawerDataRef.index];
+
+      const totalGeral = parseMoneyCell(r["Total CP"]);
+      const totalServ = parseMoneyCell(
+        r["Total Serviços"] || r["Total Servicos"] || r["Serviços"] || r["Servicos"]
+      );
+      const totalPecas = parseMoneyCell(
+        r["Total Peças"] || r["Total Pecas"] || r["Peças"] || r["Pecas"]
+      );
+
+      const linhas = [
+        `OS: ${r["Numero do Orçamento"]} | Cliente: ${r.Cliente} | Placa: ${r.Placa} | Etiqueta: ${r.Etiqueta} | Status: ${r.Status}`,
+        `Datas - Entrada: ${fmtDateBR(r._de)} | Autorização: ${fmtDateBR(r._da)} | Fechamento: ${fmtDateBR(r._df)} | Saída: ${fmtDateBR(r._ds)}`,
+        `Totais - Geral: ${fmtMoney(totalGeral)} | Serviços: ${fmtMoney(totalServ)} | Peças: ${fmtMoney(totalPecas)}`
+      ];
+
+      navigator.clipboard.writeText(linhas.join('\n')).then(()=> {
+        alert("Detalhe copiado para a área de transferência.");
+      }).catch(err => {
+        console.error(err);
+        alert("Não foi possível copiar para a área de transferência.");
+      });
+    });
+  } else {
+    btnCopy.disabled = true;
+    btnCopy.title = "Clipboard API não disponível";
+  }
+});
+</script>
+</body>
+</html>
