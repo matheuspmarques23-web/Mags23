@@ -124,6 +124,7 @@
     <button class="tabBtn" data-tab="mes">Mês/Ano</button>
     <button class="tabBtn" data-tab="analises">Análises</button>
     <button class="tabBtn" data-tab="tabela">Tabela Base</button>
+    <button class="tabBtn" data-tab="diag">Diagnóstico</button>
   </div>
 
   <!-- ABA: ANO -->
@@ -259,6 +260,17 @@
     <div class="card" style="overflow:auto;">
       <div class="label">Tabela Base Completa (clique numa linha para ver o detalhe)</div>
       <table id="baseTable"></table>
+    </div>
+  </section>
+
+  <!-- ABA: DIAGNÓSTICO -->
+  <section id="diag" class="tabContent hidden">
+    <div class="card">
+      <div><strong>Progresso:</strong> <span id="diagProgress">Aguardando importação...</span></div>
+      <div><strong>Linhas importadas:</strong> <span id="diagLines">0</span></div>
+      <div><strong>Erros:</strong>
+        <ul id="diagErrors"></ul>
+      </div>
     </div>
   </section>
 </div>
@@ -482,6 +494,9 @@ function classifyRec(rec){
 /* =================== Estado =================== */
 let DATA = []; // preenchido na importação
 const headers = ["Numero do Orçamento","Cliente","Placa","Veículo","Data de Entrada","Data de Autorização","Data de Fechamento","Data de Saída","Etiqueta","Status","Total CP"];
+const diagProgress = document.getElementById('diagProgress');
+const diagLines = document.getElementById('diagLines');
+const diagErrors = document.getElementById('diagErrors');
 
 /* =================== Tabelas =================== */
 function renderFilterableTable(el, rows, onRowClick){
@@ -707,13 +722,20 @@ function computeMetrics(data, tempoAgg="media"){
 /* =================== Importação =================== */
 async function importCSV(file){
   try {
+    diagErrors.innerHTML = '';
+    diagProgress.textContent = 'Lendo arquivo...';
+    diagLines.textContent = '0';
+
     const text = await readFileSmart(file);
     const {header, rows} = parseCSV(text);
     if(!header.length) throw new Error("CSV vazio ou inválido");
 
+    diagProgress.textContent = `Processando ${rows.length} linhas...`;
     const index = buildHeaderIndex(header);
 
-    const data = rows.map(row => {
+    const data = [];
+    for(let i=0;i<rows.length;i++){
+      const row = rows[i];
       const rec = {};
       headers.forEach(h => {
         const pos = index[normalizeKey(h)];
@@ -725,11 +747,16 @@ async function importCSV(file){
       rec._df = parseDateStrict(rec["Data de Fechamento"]);
       rec._ds = parseDateStrict(rec["Data de Saída"]);
 
-      return rec;
-    });
+      data.push(rec);
+      if((i+1)%100===0 || i===rows.length-1){
+        diagProgress.textContent = `Processando ${i+1}/${rows.length}`;
+      }
+    }
 
     DATA = data;
-    
+    diagLines.textContent = String(data.length);
+    diagProgress.textContent = 'Concluído';
+
     updateYearSelect();
     updateMonthSelect();
     updateBaseTable();
@@ -738,6 +765,8 @@ async function importCSV(file){
     updateAnalises();
     return true;
   } catch (e) {
+    diagProgress.textContent = 'Erro';
+    diagErrors.innerHTML += `<li>${e.message}</li>`;
     console.error("Erro na importação:", e);
     alert("Erro ao importar CSV: " + e.message);
     return false;
@@ -1223,6 +1252,7 @@ document.addEventListener('DOMContentLoaded', () => {
   fileInput.addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if(file) {
+      showTab('diag');
       const success = await importCSV(file);
       if(success) showTab('ano');
     }
