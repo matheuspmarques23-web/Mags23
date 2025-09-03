@@ -292,6 +292,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 <script>
 /* =================== Tema =================== */
 function setTheme(mode){
@@ -358,29 +359,16 @@ function detectSep(line){
   return cSemi>cComma? ';' : ',';
 }
 function parseCSV(text){
-  text = text.replace(/\r\n/g,'\n').replace(/\r/g,'\n');
-  const lines = text.split('\n').filter(l => l.length>0);
-  if(!lines.length) return {header:[], rows:[]};
-  const sep = detectSep(lines[0]);
-  const rows = [];
-  for(const line of lines){
-    const cols = [];
-    let cur = '', q=false;
-    for(let i=0;i<line.length;i++){
-      const ch=line[i];
-      if(ch==='\"'){
-        if(q && line[i+1]==='\"'){ cur+='\"'; i++; }
-        else q=!q;
-      }else if(ch===sep && !q){
-        cols.push(cur); cur='';
-      }else{
-        cur+=ch;
-      }
-    }
-    cols.push(cur);
-    rows.push(cols);
+  text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  if(!text.trim()) return {header:[], rows:[]};
+  const sep = detectSep(text.split('\n')[0]);
+  const result = Papa.parse(text, {delimiter: sep, skipEmptyLines: true});
+  if(result.errors && result.errors.length){
+    throw new Error(result.errors[0].message);
   }
-  return {header: rows.shift(), rows, sep};
+  if(!result.data.length) return {header:[], rows:[], sep};
+  const [header, ...rows] = result.data;
+  return {header, rows, sep};
 }
 
 /* =================== Mapeamento =================== */
@@ -719,6 +707,8 @@ async function importCSV(file){
     if(!header.length) throw new Error("CSV vazio ou inválido");
 
     const index = buildHeaderIndex(header);
+    const recognized = headers.filter(h => index[normalizeKey(h)] >= 0);
+    if(!recognized.length) throw new Error("Cabeçalhos do CSV não reconhecidos");
 
     const data = rows.map(row => {
       const rec = {};
