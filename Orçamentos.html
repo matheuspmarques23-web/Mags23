@@ -748,17 +748,27 @@ async function importCSV(file){
 function updateYearSelect(){
   const sel = document.getElementById('anoSelect');
   const years = [...new Set(DATA.map(yearFrom).filter(Boolean))].sort((a,b)=>b-a);
-  sel.innerHTML = years.map(y => `<option value="${y}">${y}</option>`).join('');
+  sel.textContent = '';
+  years.forEach(y => {
+    const opt = document.createElement('option');
+    opt.value = y;
+    opt.textContent = y;
+    sel.appendChild(opt);
+  });
   if(years.length) sel.value = years[0];
 }
 function updateMonthSelect(){
   const sel = document.getElementById('mesSelect');
   const months = [...new Set(DATA.map(ymKey).filter(Boolean))].sort().reverse();
-  sel.innerHTML = months.map(ym => {
+  sel.textContent = '';
+  months.forEach(ym => {
     const [y,m] = ym.split('-');
     const monthName = new Date(y, m-1).toLocaleDateString('pt-BR', {month:'long', year:'numeric'});
-    return `<option value="${ym}">${monthName}</option>`;
-  }).join('');
+    const opt = document.createElement('option');
+    opt.value = ym;
+    opt.textContent = monthName;
+    sel.appendChild(opt);
+  });
 }
 
 function currentYearData(){
@@ -880,47 +890,107 @@ function navDrawer(delta){
 function renderDrawer(r){
   document.getElementById('drawerTitle').textContent = `Orçamento ${r["Numero do Orçamento"] || "—"}`;
   const cls = classifyRec(r);
-  const badges = `
-    <span class="pill fin-${cls.fin.replace(' ','\\ ')}">Financeiro: ${cls.fin}</span>
-    <span class="pill ctrl-${cls.ctrl.replace(' ','\\ ')}">Controle: ${cls.ctrl}</span>
-  `;
-  document.getElementById('drawerBadges').innerHTML = badges;
 
-  const kv = `
-    <div class="k">Cliente</div><div>${r.Cliente || '—'}</div>
-    <div class="k">Placa</div><div>${r.Placa || '—'}</div>
-    <div class="k">Veículo</div><div>${r["Veículo"] || r["Veiculo"] || '—'}</div>
-    <div class="k">Etiqueta</div><div>${r.Etiqueta || '—'}</div>
-    <div class="k">Status</div><div>${r.Status || '—'}</div>
-    <div class="k">Entrada</div><div>${fmtDateBR(r._de)}</div>
-    <div class="k">Autorização</div><div>${fmtDateBR(r._da)}</div>
-    <div class="k">Fechamento</div><div>${fmtDateBR(r._df)}</div>
-    <div class="k">Saída</div><div>${fmtDateBR(r._ds)}</div>
-    <div class="k">Valor Total</div><div><strong>${fmtMoney(parseMoneyCell(r["Total CP"]))}</strong></div>
-  `;
-  document.getElementById('drawerKV').innerHTML = kv;
+  const badgeContainer = document.getElementById('drawerBadges');
+  badgeContainer.textContent = '';
+  const badgeFin = document.createElement('span');
+  badgeFin.className = `pill fin-${cls.fin.replace(' ','\\ ')}`;
+  badgeFin.textContent = `Financeiro: ${cls.fin}`;
+  const badgeCtrl = document.createElement('span');
+  badgeCtrl.className = `pill ctrl-${cls.ctrl.replace(' ','\\ ')}`;
+  badgeCtrl.textContent = `Controle: ${cls.ctrl}`;
+  badgeContainer.append(badgeFin, badgeCtrl);
+
+  const kvEl = document.getElementById('drawerKV');
+  kvEl.textContent = '';
+  const pairs = [
+    ['Cliente', r.Cliente || '—'],
+    ['Placa', r.Placa || '—'],
+    ['Veículo', r["Veículo"] || r["Veiculo"] || '—'],
+    ['Etiqueta', r.Etiqueta || '—'],
+    ['Status', r.Status || '—'],
+    ['Entrada', fmtDateBR(r._de)],
+    ['Autorização', fmtDateBR(r._da)],
+    ['Fechamento', fmtDateBR(r._df)],
+    ['Saída', fmtDateBR(r._ds)]
+  ];
+  pairs.forEach(([k,v]) => {
+    const kdiv = document.createElement('div');
+    kdiv.className = 'k';
+    kdiv.textContent = k;
+    kvEl.appendChild(kdiv);
+    const vdiv = document.createElement('div');
+    vdiv.textContent = v;
+    kvEl.appendChild(vdiv);
+  });
+  const kdiv = document.createElement('div');
+  kdiv.className = 'k';
+  kdiv.textContent = 'Valor Total';
+  kvEl.appendChild(kdiv);
+  const vdiv = document.createElement('div');
+  const strong = document.createElement('strong');
+  strong.textContent = fmtMoney(parseMoneyCell(r["Total CP"]));
+  vdiv.appendChild(strong);
+  kvEl.appendChild(vdiv);
 
   // Timeline: barra proporcional entre datas (se existirem)
+  const tlEl = document.getElementById('drawerTimeline');
+  tlEl.textContent = '';
   const hasAll = r._de && r._da && r._ds;
-  let tl = '';
   if(hasAll){
     const msCiclo = r._da - r._de;
     const msFinal = r._ds - r._de;
     const p = Math.max(1, msFinal); // evitar /0
     const cicloPct = Math.max(0, Math.min(1, msCiclo/p))*100;
-    tl = `
-      <div class="trow"><span class="dot" style="background:var(--info)"></span><div>Entrada: ${fmtDateBR(r._de)}</div></div>
-      <div class="bar">
-        <span class="seg" style="left:0; width:${cicloPct}%"></span>
-      </div>
-      <div class="trow"><span class="dot" style="background:var(--warn)"></span><div>Autorização: ${fmtDateBR(r._da)} (${(msCiclo/86400000).toFixed(1)} dias)</div></div>
-      <div class="bar"></div>
-      <div class="trow"><span class="dot" style="background:var(--ok)"></span><div>Saída: ${fmtDateBR(r._ds)} (Total ${(msFinal/86400000).toFixed(1)} dias)</div></div>
-    `;
+
+    const trow1 = document.createElement('div');
+    trow1.className = 'trow';
+    const dot1 = document.createElement('span');
+    dot1.className = 'dot';
+    dot1.style.background = 'var(--info)';
+    const div1 = document.createElement('div');
+    div1.textContent = `Entrada: ${fmtDateBR(r._de)}`;
+    trow1.append(dot1, div1);
+    tlEl.appendChild(trow1);
+
+    const bar1 = document.createElement('div');
+    bar1.className = 'bar';
+    const seg = document.createElement('span');
+    seg.className = 'seg';
+    seg.style.left = '0';
+    seg.style.width = `${cicloPct}%`;
+    bar1.appendChild(seg);
+    tlEl.appendChild(bar1);
+
+    const trow2 = document.createElement('div');
+    trow2.className = 'trow';
+    const dot2 = document.createElement('span');
+    dot2.className = 'dot';
+    dot2.style.background = 'var(--warn)';
+    const div2 = document.createElement('div');
+    div2.textContent = `Autorização: ${fmtDateBR(r._da)} (${(msCiclo/86400000).toFixed(1)} dias)`;
+    trow2.append(dot2, div2);
+    tlEl.appendChild(trow2);
+
+    const bar2 = document.createElement('div');
+    bar2.className = 'bar';
+    tlEl.appendChild(bar2);
+
+    const trow3 = document.createElement('div');
+    trow3.className = 'trow';
+    const dot3 = document.createElement('span');
+    dot3.className = 'dot';
+    dot3.style.background = 'var(--ok)';
+    const div3 = document.createElement('div');
+    div3.textContent = `Saída: ${fmtDateBR(r._ds)} (Total ${(msFinal/86400000).toFixed(1)} dias)`;
+    trow3.append(dot3, div3);
+    tlEl.appendChild(trow3);
   } else {
-    tl = `<div class="hint">Sem datas suficientes para montar a linha do tempo.</div>`;
+    const hint = document.createElement('div');
+    hint.className = 'hint';
+    hint.textContent = 'Sem datas suficientes para montar a linha do tempo.';
+    tlEl.appendChild(hint);
   }
-  document.getElementById('drawerTimeline').innerHTML = tl;
 
   document.getElementById('drawerIndexHint').textContent = `${drawerDataRef.index+1} / ${drawerDataRef.list.length}`;
 }
