@@ -1249,20 +1249,30 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btnClose').addEventListener('click', closeDrawer);
   document.getElementById('btnPrev').addEventListener('click', ()=>navDrawer(-1));
   document.getElementById('btnNext').addEventListener('click', ()=>navDrawer(+1));
-  document.getElementById('btnCopy').addEventListener('click', ()=>{
-    if(drawerDataRef.index<0) return;
-    const r = drawerDataRef.list[drawerDataRef.index];
-    const payload = {
-      numero: r["Numero do Orçamento"],
-      cliente: r.Cliente, placa: r.Placa, veiculo: r["Veículo"] || r["Veiculo"],
-      etiqueta: r.Etiqueta, status: r.Status,
-      entrada: fmtDateBR(r._de), autorizacao: fmtDateBR(r._da), fechamento: fmtDateBR(r._df), saida: fmtDateBR(r._ds),
-      valor: parseMoneyCell(r["Total CP"])
-    };
-    navigator.clipboard.writeText(JSON.stringify(payload, null, 2)).then(()=> {
-      alert("Detalhe copiado para a área de transferência.");
+
+  const btnCopy = document.getElementById('btnCopy');
+  if(navigator.clipboard && navigator.clipboard.writeText) {
+    btnCopy.addEventListener('click', ()=>{
+      if(drawerDataRef.index<0) return;
+      const r = drawerDataRef.list[drawerDataRef.index];
+      const payload = {
+        numero: r["Numero do Orçamento"],
+        cliente: r.Cliente, placa: r.Placa, veiculo: r["Veículo"] || r["Veiculo"],
+        etiqueta: r.Etiqueta, status: r.Status,
+        entrada: fmtDateBR(r._de), autorizacao: fmtDateBR(r._da), fechamento: fmtDateBR(r._df), saida: fmtDateBR(r._ds),
+        valor: parseMoneyCell(r["Total CP"])
+      };
+      navigator.clipboard.writeText(JSON.stringify(payload, null, 2)).then(()=> {
+        alert("Detalhe copiado para a área de transferência.");
+      }).catch(err => {
+        console.error(err);
+        alert("Não foi possível copiar para a área de transferência.");
+      });
     });
-  });
+  } else {
+    btnCopy.disabled = true;
+    btnCopy.title = "Clipboard API não disponível";
+  }
 });
 </script>
 </body>
