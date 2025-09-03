@@ -1414,14 +1414,22 @@ document.addEventListener('DOMContentLoaded', () => {
     btnCopy.addEventListener('click', ()=>{
       if(drawerDataRef.index<0) return;
       const r = drawerDataRef.list[drawerDataRef.index];
-      const payload = {
-        numero: r["Numero do Orçamento"],
-        cliente: r.Cliente, placa: r.Placa, veiculo: r["Veículo"] || r["Veiculo"],
-        etiqueta: r.Etiqueta, status: r.Status,
-        entrada: fmtDateBR(r._de), autorizacao: fmtDateBR(r._da), fechamento: fmtDateBR(r._df), saida: fmtDateBR(r._ds),
-        valor: parseMoneyCell(r["Total CP"])
-      };
-      navigator.clipboard.writeText(JSON.stringify(payload, null, 2)).then(()=> {
+
+      const totalGeral = parseMoneyCell(r["Total CP"]);
+      const totalServ = parseMoneyCell(
+        r["Total Serviços"] || r["Total Servicos"] || r["Serviços"] || r["Servicos"]
+      );
+      const totalPecas = parseMoneyCell(
+        r["Total Peças"] || r["Total Pecas"] || r["Peças"] || r["Pecas"]
+      );
+
+      const linhas = [
+        `OS: ${r["Numero do Orçamento"]} | Cliente: ${r.Cliente} | Placa: ${r.Placa} | Etiqueta: ${r.Etiqueta} | Status: ${r.Status}`,
+        `Datas - Entrada: ${fmtDateBR(r._de)} | Autorização: ${fmtDateBR(r._da)} | Fechamento: ${fmtDateBR(r._df)} | Saída: ${fmtDateBR(r._ds)}`,
+        `Totais - Geral: ${fmtMoney(totalGeral)} | Serviços: ${fmtMoney(totalServ)} | Peças: ${fmtMoney(totalPecas)}`
+      ];
+
+      navigator.clipboard.writeText(linhas.join('\n')).then(()=> {
         alert("Detalhe copiado para a área de transferência.");
       }).catch(err => {
         console.error(err);
