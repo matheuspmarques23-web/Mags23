@@ -404,7 +404,13 @@ const HEADER_MAP = {
   "data de saida": ["data de saida","data de saída","saida","saída","entregue"],
   "etiqueta": ["etiqueta","tag","categoria"],
   "status": ["status","situacao","situação","fase"],
-  "total cp": ["total cp","total","valor total","valor","preco","preço"]
+  "total cp": ["total cp","total","valor total","valor","preco","preço"],
+  // Campos de itens
+  "tipo": ["tipo","tipo item","categoria"],
+  "descricao": ["descricao","descrição","item","descricao do item","descrição do item"],
+  "quantidade": ["quant./hrs.","quantidade","qtd","horas"],
+  "preco unitario": ["preco","preço","preco unitario","preço unitário","vlr unit"],
+  "total da linha": ["total","total do item","valor total"]
 };
 function buildHeaderIndex(headerCells){
   const norm = headerCells.map(h => normalizeKey(h));
@@ -412,7 +418,8 @@ function buildHeaderIndex(headerCells){
   for(const [canon, aliases] of Object.entries(HEADER_MAP)){
     let pos = -1;
     for(const a of aliases){
-      const j = norm.findIndex(h => h.includes(a));
+      const aNorm = normalizeKey(a);
+      const j = norm.findIndex(h => h.includes(aNorm));
       if(j>=0){ pos=j; break; }
     }
     index[canon] = pos;
@@ -497,7 +504,11 @@ function classifyRec(rec){
 
 /* =================== Estado =================== */
 let DATA = []; // preenchido na importação
-const headers = ["Numero do Orçamento","Cliente","Placa","Veículo","Data de Entrada","Data de Autorização","Data de Fechamento","Data de Saída","Etiqueta","Status","Total CP"];
+const headers = [
+  "Numero do Orçamento","Cliente","Placa","Veículo","Data de Entrada","Data de Autorização",
+  "Data de Fechamento","Data de Saída","Etiqueta","Status","Total CP",
+  "Tipo","Descrição","Quantidade","Preço Unitário","Total da Linha"
+];
 const diagProgress = document.getElementById('diagProgress');
 const diagLines = document.getElementById('diagLines');
 const diagErrors = document.getElementById('diagErrors');
@@ -1318,7 +1329,11 @@ function updateAnalises(){
 
 /* =================== Export CSV =================== */
 function exportCSV(data, filename){
-  const headersExp = ["Numero do Orçamento","Cliente","Placa","Veículo","Data de Entrada","Data de Autorização","Data de Fechamento","Data de Saída","Etiqueta","Status","Total CP"];
+  const headersExp = [
+    "Numero do Orçamento","Cliente","Placa","Veículo","Data de Entrada","Data de Autorização",
+    "Data de Fechamento","Data de Saída","Etiqueta","Status","Total CP",
+    "Tipo","Descrição","Quantidade","Preço Unitário","Total da Linha"
+  ];
   const rows = [headersExp];
   data.forEach(r => {
     const row = headersExp.map(h => {
