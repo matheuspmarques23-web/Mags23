@@ -80,6 +80,10 @@
   .drawer-header { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:12px 14px; border-bottom:1px solid var(--mh-border); }
   .drawer-title { font-weight:800; font-size:14px; }
   .drawer-body { padding:14px; overflow:auto; display:flex; flex-direction:column; gap:12px; }
+  .drawer-tabs { display:flex; gap:8px; }
+  .drawer-tabs button { flex:1; background:var(--mh-soft); border:1px solid var(--mh-border); padding:8px; border-radius:8px; cursor:pointer; }
+  .drawer-tabs button.active { background:var(--mh-orange); color:white; border-color:var(--mh-orange); }
+  .drawerTab { display:flex; flex-direction:column; gap:12px; }
   .pill { display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border-radius:999px; font-size:12px; border:1px solid var(--mh-border); }
   .pill.fin-Faturado { background: rgba(22,163,74,.15); border-color: rgba(22,163,74,.35); }
   .pill.fin-A\ faturar { background: rgba(59,130,246,.15); border-color: rgba(59,130,246,.35); }
@@ -294,13 +298,41 @@
     </div>
   </div>
   <div class="drawer-body">
-    <div id="drawerBadges"></div>
-    <div class="card">
-      <div class="kv" id="drawerKV"></div>
+    <div class="drawer-tabs">
+      <button class="drawerTabBtn active" data-tab="det">Detalhes da OS</button>
+      <button class="drawerTabBtn" data-tab="hist">Histórico do Veículo</button>
     </div>
-    <div class="card">
-      <div class="label">Timeline</div>
-      <div class="timeline" id="drawerTimeline"></div>
+    <div id="drawerTab-det" class="drawerTab">
+      <div id="drawerBadges"></div>
+      <div class="card">
+        <div class="kv" id="drawerKV"></div>
+      </div>
+      <div class="card">
+        <div class="label">Timeline</div>
+        <div class="timeline" id="drawerTimeline"></div>
+      </div>
+      <div class="card">
+        <div class="label">Serviços</div>
+        <table id="drawerServicos">
+          <thead><tr><th>Descrição</th><th>Qtd</th><th>Preço Unit.</th><th>Total</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="card">
+        <div class="label">Peças</div>
+        <table id="drawerPecas">
+          <thead><tr><th>Descrição</th><th>Qtd</th><th>Preço Unit.</th><th>Total</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+    <div id="drawerTab-hist" class="drawerTab hidden">
+      <div class="card">
+        <table id="drawerHistoricoTable">
+          <thead><tr><th>Orçamento</th><th>Entrada</th><th>Status</th><th>Total</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
     </div>
   </div>
   <div class="drawer-actions">
@@ -925,6 +957,15 @@ let mesTableController = null;
 let baseTableController = null;
 let drawerDataRef = { list:[], index:-1 };
 
+function showDrawerTab(tab){
+  document.querySelectorAll('.drawerTabBtn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tab === tab);
+  });
+  document.querySelectorAll('.drawerTab').forEach(div => {
+    div.classList.toggle('hidden', div.id !== `drawerTab-${tab}`);
+  });
+}
+
 function updateMesTable(data){
   const el = document.getElementById('mesTable');
   mesTableController = renderFilterableTable(el, data, openDrawerWith);
@@ -957,8 +998,7 @@ function updateBaseTable(){
 }
 
 function openDrawerWith(row, idx, list){
-  drawerDataRef = { list, index: idx };
-  renderDrawer(row);
+  renderDrawer(row, list, idx);
   document.getElementById('drawer').classList.add('open');
   document.getElementById('drawer').setAttribute('aria-hidden','false');
 }
@@ -972,7 +1012,11 @@ function navDrawer(delta){
   renderDrawer(drawerDataRef.list[drawerDataRef.index]);
 }
 
-function renderDrawer(r){
+function renderDrawer(r, list=null, idx=null){
+  if(list){
+    drawerDataRef = { list, index: idx };
+  }
+  showDrawerTab('det');
   document.getElementById('drawerTitle').textContent = `Orçamento ${r["Numero do Orçamento"] || "—"}`;
   const cls = classifyRec(r);
 
@@ -1076,6 +1120,56 @@ function renderDrawer(r){
     hint.textContent = 'Sem datas suficientes para montar a linha do tempo.';
     tlEl.appendChild(hint);
   }
+
+  const servBody = document.querySelector('#drawerServicos tbody');
+  servBody.textContent = '';
+  const servicos = r.servicos || [];
+  if(servicos.length){
+    servicos.forEach(s => {
+      const tr = document.createElement('tr');
+      const desc = s.descricao || s['Descrição'] || s.item || '—';
+      const qtd = s.quantidade || s.qtd || s.q || 0;
+      const preco = s.preco || s.precoUnit || s.preco_unit || s.preço || 0;
+      const total = s.total || (qtd * preco);
+      tr.innerHTML = `<td>${desc}</td><td>${fmtInt(qtd)}</td><td>${fmtMoney(preco)}</td><td>${fmtMoney(total)}</td>`;
+      servBody.appendChild(tr);
+    });
+  } else {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 4; td.className = 'hint'; td.textContent = 'Sem serviços';
+    tr.appendChild(td); servBody.appendChild(tr);
+  }
+
+  const pecBody = document.querySelector('#drawerPecas tbody');
+  pecBody.textContent = '';
+  const pecas = r.pecas || [];
+  if(pecas.length){
+    pecas.forEach(p => {
+      const tr = document.createElement('tr');
+      const desc = p.descricao || p['Descrição'] || p.item || '—';
+      const qtd = p.quantidade || p.qtd || p.q || 0;
+      const preco = p.preco || p.precoUnit || p.preco_unit || p.preço || 0;
+      const total = p.total || (qtd * preco);
+      tr.innerHTML = `<td>${desc}</td><td>${fmtInt(qtd)}</td><td>${fmtMoney(preco)}</td><td>${fmtMoney(total)}</td>`;
+      pecBody.appendChild(tr);
+    });
+  } else {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 4; td.className = 'hint'; td.textContent = 'Sem peças';
+    tr.appendChild(td); pecBody.appendChild(tr);
+  }
+
+  const histBody = document.querySelector('#drawerHistoricoTable tbody');
+  histBody.textContent = '';
+  const historico = DATA.filter(o => o.Placa === r.Placa).sort((a,b)=>(b._de||0)-(a._de||0));
+  historico.forEach((o,i)=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${o["Numero do Orçamento"]||'—'}</td><td>${fmtDateBR(o._de)}</td><td>${o.Status||'—'}</td><td>${fmtMoney(parseMoneyCell(o["Total CP"]))}</td>`;
+    tr.addEventListener('click', ()=>renderDrawer(o, historico, i));
+    histBody.appendChild(tr);
+  });
 
   document.getElementById('drawerIndexHint').textContent = `${drawerDataRef.index+1} / ${drawerDataRef.list.length}`;
 }
@@ -1462,6 +1556,9 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btnClose').addEventListener('click', closeDrawer);
   document.getElementById('btnPrev').addEventListener('click', ()=>navDrawer(-1));
   document.getElementById('btnNext').addEventListener('click', ()=>navDrawer(+1));
+  document.querySelectorAll('.drawerTabBtn').forEach(btn=>{
+    btn.addEventListener('click', ()=>showDrawerTab(btn.dataset.tab));
+  });
 
   const btnCopy = document.getElementById('btnCopy');
   if(navigator.clipboard && navigator.clipboard.writeText) {
