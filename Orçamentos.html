@@ -119,6 +119,8 @@
     <span class="hint">Aceita ; ou , — com campos entre aspas e codificação UTF-8 / ISO-8859-1. Hora nas datas é ignorada.</span>
   </div>
 
+  <div id="diagnostico" class="hint"></div>
+
   <div class="tabs">
     <button class="tabBtn active" data-tab="ano">Ano</button>
     <button class="tabBtn" data-tab="mes">Mês/Ano</button>
@@ -408,24 +410,27 @@ function buildHeaderIndex(headerCells){
 function onlyDatePart(s){
   if(!s) return "";
   s = String(s).trim();
-  const m = s.match(/(\d{4}-\d{2}-\d{2})|(\d{2}[/-]\d{2}[/-]\d{4})/);
+  const m = s.match(/(\d{4}-\d{2}-\d{2})|(\d{2}[\/.-]\d{2}[\/.-]\d{4})|(\d{8})/);
   return m ? m[0] : "";
 }
-function parseDateStrict(s){
+function parseDateStrict(s, field){
   s = onlyDatePart(s);
   if(!s) return null;
-  if(/^\d{4}-\d{2}-\d{2}$/.test(s)){ // ISO
-    const [y,m,d] = s.split('-').map(Number);
-    return new Date(y, m-1, d);
+  const patterns = [
+    {re:/^\d{4}-\d{2}-\d{2}$/, fn:s=>{const [y,m,d]=s.split('-').map(Number); return [y,m,d];}},
+    {re:/^\d{2}\/\d{2}\/\d{4}$/, fn:s=>{const [d,m,y]=s.split('/').map(Number); return [y,m,d];}},
+    {re:/^\d{2}-\d{2}-\d{4}$/, fn:s=>{const [d,m,y]=s.split('-').map(Number); return [y,m,d];}},
+    {re:/^\d{2}\.\d{2}\.\d{4}$/, fn:s=>{const [d,m,y]=s.split('.').map(Number); return [y,m,d];}},
+    {re:/^\d{8}$/, fn:s=>{const d=s.slice(0,2), m=s.slice(2,4), y=s.slice(4,8); return [Number(y), Number(m), Number(d)];}},
+    {re:/^\d{4}\/\d{2}\/\d{2}$/, fn:s=>{const [y,m,d]=s.split('/').map(Number); return [y,m,d];}}
+  ];
+  for(const p of patterns){
+    if(p.re.test(s)){
+      const [y,m,d] = p.fn(s);
+      return new Date(y, m-1, d);
+    }
   }
-  if(/^\d{2}\/\d{2}\/\d{4}$/.test(s)){ // BR com /
-    const [d,m,y] = s.split('/').map(Number);
-    return new Date(y, m-1, d);
-  }
-  if(/^\d{2}-\d{2}-\d{4}$/.test(s)){ // BR com -
-    const [d,m,y] = s.split('-').map(Number);
-    return new Date(y, m-1, d);
-  }
+  if(field) console.warn(`Data inválida em ${field}: ${s}`);
   return null;
 }
 function fmtDateBR(d){
@@ -708,28 +713,38 @@ function computeMetrics(data, tempoAgg="media"){
 async function importCSV(file){
   try {
     const text = await readFileSmart(file);
-    const {header, rows} = parseCSV(text);
+    const {header, rows, sep} = parseCSV(text);
     if(!header.length) throw new Error("CSV vazio ou inválido");
+
+    const validRows = rows.filter(r => r.length === header.length);
+    const ignored = rows.length - validRows.length;
 
     const index = buildHeaderIndex(header);
 
-    const data = rows.map(row => {
+    const data = validRows.map(row => {
       const rec = {};
       headers.forEach(h => {
         const pos = index[normalizeKey(h)];
         rec[h] = pos >= 0 ? normalizeVal(row[pos]) : "";
       });
 
-      rec._de = parseDateStrict(rec["Data de Entrada"]);
-      rec._da = parseDateStrict(rec["Data de Autorização"]);
-      rec._df = parseDateStrict(rec["Data de Fechamento"]);
-      rec._ds = parseDateStrict(rec["Data de Saída"]);
+      rec._de = parseDateStrict(rec["Data de Entrada"], "Data de Entrada");
+      rec._da = parseDateStrict(rec["Data de Autorização"], "Data de Autorização");
+      rec._df = parseDateStrict(rec["Data de Fechamento"], "Data de Fechamento");
+      rec._ds = parseDateStrict(rec["Data de Saída"], "Data de Saída");
 
       return rec;
     });
 
     DATA = data;
-    
+
+    const diag = document.getElementById('diagnostico');
+    if(diag) diag.textContent = `Separador: "${sep}" — Linhas válidas: ${data.length} — Ignoradas: ${ignored}`;
+    if(!DATA.length){
+      alert('Nenhum registro encontrado');
+      return false;
+    }
+
     updateYearSelect();
     updateMonthSelect();
     updateBaseTable();
