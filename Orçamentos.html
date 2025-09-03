@@ -327,7 +327,14 @@ function fmtMoney(v){ return (v||0).toLocaleString('pt-BR',{style:'currency',cur
 function fmtInt(v){ return (v||0).toLocaleString('pt-BR'); }
 
 /* =================== Parser CSV =================== */
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
 async function readFileSmart(file){
+  if (file.size > MAX_FILE_SIZE) {
+    const lim = (MAX_FILE_SIZE / (1024 * 1024)).toFixed(0);
+    const actual = (file.size / (1024 * 1024)).toFixed(2);
+    throw new Error(`Arquivo muito grande (${actual} MB). Limite de ${lim} MB.`);
+  }
+  // TODO: Consider incremental parsing (FileReader slices or Web Workers) to reduce peak memory usage
   const buf = await file.arrayBuffer();
   let text = new TextDecoder('utf-8', {fatal:false}).decode(new Uint8Array(buf));
   const bad = (text.match(/\uFFFD/g)||[]).length;
