@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Unir CSVs – Contas a Receber & Pagar</title>
+<style>
+  :root{
+    --bg:#0b1020; --card:#0f172a; --soft:#1e293b; --text:#e5e7eb; --muted:#9aa4b2; --acc:#f26722;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--text)}
+  header{padding:20px;border-bottom:1px solid var(--soft)}
+  h1{margin:0 0 6px;font-size:20px}
+  .sub{color:var(--muted);font-size:13px}
+  main{max-width:1100px;margin:20px auto;padding:0 16px}
+  .grid{display:grid;gap:12px;grid-template-columns:repeat(12,1fr)}
+  .card{background:var(--card);border:1px solid var(--soft);border-radius:14px;padding:14px}
+  .col-6{grid-column:span 6}
+  .col-12{grid-column:span 12}
+  label{font-size:13px;color:var(--muted);display:block;margin-bottom:6px}
+  input[type=file],select{width:100%;padding:10px;border-radius:10px;border:1px solid var(--soft);background:#0b1328;color:var(--text)}
+  .row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+  .row > *{margin-right:6px}
+  .btn{background:var(--acc);color:#111;padding:10px 14px;border:none;border-radius:10px;font-weight:600;cursor:pointer}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .pill{padding:6px 10px;border:1px solid var(--soft);border-radius:999px;font-size:12px;color:var(--muted)}
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th,td{border-bottom:1px solid var(--soft);padding:8px;vertical-align:top}
+  th{position:sticky;top:0;background:#0f172a;z-index:1}
+  .hint{font-size:12px;color:var(--muted)}
+  .ok{color:#98ecb2}
+  .warn{color:#ffd27d}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace}
+  .switch{display:inline-flex;gap:8px;align-items:center}
+</style>
+</head>
+<body>
+<header>
+  <h1>Unir CSVs – Receber & Pagar</h1>
+  <div class="sub">Carregue os dois arquivos, ajuste opções e gere um CSV único para análise.</div>
+</header>
+
+<main>
+  <div class="grid">
+    <div class="card col-6">
+      <label>CSV – Contas a Receber</label>
+      <input id="fileReceber" type="file" accept=".csv,text/csv">
+      <div class="hint">Colunas esperadas: <span class="mono">Vencimento, Devedor, Descrição, Doc., Situação, Emissão, Pagamento, Valor, Total Liquido, Total a Receber</span></div>
+    </div>
+    <div class="card col-6">
+      <label>CSV – Contas a Pagar</label>
+      <input id="filePagar" type="file" accept=".csv,text/csv">
+      <div class="hint">Colunas esperadas: <span class="mono">Vencimento, Beneficiado, Descrição, Doc., Plano de contas, Situação, Emissão, Pagamento, Valor, Total, Centro de contas</span></div>
+    </div>
+
+    <div class="card col-12">
+      <div class="row">
+        <div class="switch">
+          <label>Delimitador de saída</label>
+          <select id="outDelim">
+            <option value=";">Ponto e vírgula (;)</option>
+            <option value=",">Vírgula (,)</option>
+          </select>
+        </div>
+        <div class="switch">
+          <label>Placeholder para ausentes</label>
+          <select id="missing">
+            <option value="">Em branco</option>
+            <option value="-">Traço (-)</option>
+          </select>
+        </div>
+        <div class="switch">
+          <input type="checkbox" id="addTipo" checked>
+          <label for="addTipo">Incluir coluna “Tipo” (Receber/Pagar)</label>
+        </div>
+        <button class="btn" id="btnProcess">Processar & Unir</button>
+        <a id="downloadLink" class="btn" style="display:none" download="contas_unificadas.csv">Baixar CSV</a>
+        <span id="status" class="pill">Aguardando arquivos…</span>
+      </div>
+      <div id="stats" class="hint" style="margin-top:8px"></div>
+    </div>
+
+    <div class="card col-12">
+      <div class="row" style="justify-content:space-between">
+        <strong>Prévia (até 200 linhas)</strong>
+        <span class="hint">Confirme se as colunas foram reconhecidas corretamente.</span>
+      </div>
+      <div id="preview" style="max-height:420px;overflow:auto;margin-top:8px"></div>
+    </div>
+  </div>
+</main>
+
+<script>
+/** Utilidades **/
+const wantedReceber = ["Vencimento","Devedor","Descrição","Doc.","Situação","Emissão","Pagamento","Valor","Total Liquido","Total a Receber"];
+const wantedPagar   = ["Vencimento","Beneficiado","Descrição","Doc.","Plano de contas","Situação","Emissão","Pagamento","Valor","Total","Centro de contas"];
+
+// Cabeçalho final (união). "Tipo" é opcional.
+const unionCols = ["Vencimento","Devedor","Beneficiado","Descrição","Doc.","Plano de contas","Situação","Emissão","Pagamento","Valor","Total","Total Liquido","Total a Receber","Centro de contas"];
+
+const normalize = (s) => String(s||"")
+  .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+  .replace(/\s+/g,' ').trim().toLowerCase()
+  .replace(/[\.\-_/]/g,'')
+  ;
+
+const headerMatchIndex = (headers, targetLabel) => {
+  const tgt = normalize(targetLabel);
+  // Mapa rápido
+  for (let i=0;i<headers.length;i++){
+    const hNorm = normalize(headers[i]);
+    if (hNorm === tgt) return i;
+    // tolera "doc" vs "doc."
+    if (tgt === "doc" && hNorm === "doc") return i;
+  }
+  // se não bater igual, tenta begins-with (p.ex. "plano de contas" ~ "plano de contas - nível")
+  for (let i=0;i<headers.length;i++){
+    const hNorm = normalize(headers[i]);
+    if (hNorm.startsWith(tgt)) return i;
+  }
+  return -1;
+};
+
+function detectDelimiter(sampleText){
+  // Tenta ; vs ,
+  const lines = sampleText.split(/\r?\n/).slice(0,5).join("\n");
+  const sc = (lines.match(/;/g)||[]).length;
+  const cc = (lines.match(/,/g)||[]).length;
+  return sc>cc ? ';' : ',';
+}
+
+// Parser CSV robusto (suporta aspas, delimitador variável)
+function parseCSV(text, delimiter) {
+  delimiter = delimiter || detectDelimiter(text);
+  const rows = [];
+  let i=0, field="", row=[], inQuotes=false;
+  const pushField = ()=>{ row.push(field); field=""; };
+  const pushRow = ()=>{ rows.push(row); row=[]; };
+  while(i<text.length){
+    const ch = text[i];
+    if (inQuotes){
+      if (ch === '"'){
+        if (text[i+1] === '"'){ field+='"'; i++; }
+        else { inQuotes=false; }
+      } else { field+=ch; }
+    } else {
+      if (ch === '"'){ inQuotes = true; }
+      else if (ch === delimiter){ pushField(); }
+      else if (ch === '\r'){
+        // ignore
+      } else if (ch === '\n'){
+        pushField(); pushRow();
+      } else {
+        field+=ch;
+      }
+    }
+    i++;
+  }
+  // último campo/linha
+  if (field.length>0 || row.length>0){ pushField(); pushRow(); }
+
+  // remove linhas vazias finais
+  while(rows.length && rows[rows.length-1].every(c=>String(c).trim()==="")) rows.pop();
+
+  if (!rows.length) return {headers:[], data:[]};
+  const headers = rows[0];
+  const data = rows.slice(1).map(r=>{
+    const obj = {};
+    headers.forEach((h,idx)=>obj[h]=r[idx]!==undefined ? r[idx] : "");
+    return obj;
+  });
+  return {headers, data};
+}
+
+function csvEscape(val, delim){
+  if (val==null) val="";
+  let s = String(val);
+  const needsQuotes = s.includes('"') || s.includes('\n') || s.includes('\r') || s.includes(delim);
+  if (s.includes('"')) s = s.replace(/"/g,'""');
+  return needsQuotes ? `"${s}"` : s;
+}
+
+function buildCSV(headers, rows, delim){
+  const head = headers.map(h=>csvEscape(h,delim)).join(delim);
+  const body = rows.map(r=>headers.map(h=>csvEscape(r[h],delim)).join(delim)).join("\r\n");
+  return head + "\r\n" + body + "\r\n";
+}
+
+/** UI **/
+const elRec = document.getElementById('fileReceber');
+const elPag = document.getElementById('filePagar');
+const elBtn = document.getElementById('btnProcess');
+const elDL  = document.getElementById('downloadLink');
+const elStatus = document.getElementById('status');
+const elPreview= document.getElementById('preview');
+const elStats  = document.getElementById('stats');
+const elDelim  = document.getElementById('outDelim');
+const elMissing= document.getElementById('missing');
+const elAddTipo= document.getElementById('addTipo');
+
+function setStatus(msg, ok=false){
+  elStatus.textContent = msg;
+  elStatus.className = 'pill ' + (ok?'ok':'');
+}
+
+function readFileAsText(file){
+  return new Promise((res,rej)=>{
+    const fr = new FileReader();
+    fr.onload = () => res(fr.result);
+    fr.onerror = () => rej(fr.error);
+    fr.readAsText(file);
+  });
+}
+
+function projectRows(parsed, wantedList, tipoLabel, missingVal){
+  const headers = parsed.headers;
+  const idxMap = {};
+  wantedList.forEach(lbl=>{
+    idxMap[lbl] = headerMatchIndex(headers, lbl);
+  });
+  const rows = parsed.data.map((rowObj)=>{
+    const sourceRow = headers.map(h=>rowObj[h]);
+    const out = {};
+    wantedList.forEach(lbl=>{
+      const i = idxMap[lbl];
+      let v = (i>=0) ? sourceRow[i] : "";
+      v = (v===undefined || v===null || String(v).trim()==="") ? missingVal : String(v).trim();
+      out[lbl] = v;
+    });
+    if (tipoLabel) out.__tipo = tipoLabel;
+    return out;
+  });
+  return {rows, idxMap};
+}
+
+function toUnionRow(rec, missingVal){
+  const row = {};
+  unionCols.forEach(c=>row[c]=missingVal);
+  Object.keys(rec).forEach(k=>{
+    if (k==="__tipo") return;
+    // posição correta
+    row[k] = rec[k];
+  });
+  return row;
+}
+
+function makePreviewTable(headers, rows, max=200){
+  const n = Math.min(rows.length, max);
+  let html = '<table><thead><tr>';
+  headers.forEach(h=> html += `<th>${h}</th>`);
+  html += '</tr></thead><tbody>';
+  for (let i=0;i<n;i++){
+    html += '<tr>';
+    headers.forEach(h=> html += `<td>${rows[i][h] ?? ""}</td>`);
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  return html;
+}
+
+elBtn.addEventListener('click', async ()=>{
+  elDL.style.display='none';
+  elPreview.innerHTML='';
+  elStats.textContent='';
+  try{
+    if (!elRec.files[0] || !elPag.files[0]){
+      setStatus('Selecione os dois arquivos antes de processar.');
+      return;
+    }
+    setStatus('Lendo arquivos…');
+    const [txtRec, txtPag] = await Promise.all([readFileAsText(elRec.files[0]), readFileAsText(elPag.files[0])]);
+
+    setStatus('Interpretando CSVs…');
+    const parsedRec = parseCSV(txtRec);
+    const parsedPag = parseCSV(txtPag);
+
+    if (!parsedRec.headers.length) throw new Error('CSV Receber sem cabeçalho.');
+    if (!parsedPag.headers.length) throw new Error('CSV Pagar sem cabeçalho.');
+
+    const missingVal = elMissing.value;
+
+    // Projeta colunas desejadas
+    const projRec = projectRows(parsedRec, wantedReceber, 'Receber', missingVal);
+    const projPag = projectRows(parsedPag, wantedPagar,   'Pagar',   missingVal);
+
+    // Converte para cabeçalho união
+    const finalRows = [];
+    if (elAddTipo.checked) unionCols.unshift('Tipo'); // adiciona se não estiver
+    // Garante que 'Tipo' fique só uma vez
+    const headersFinal = Array.from(new Set(unionCols));
+
+    projRec.rows.forEach(r=>{
+      const u = toUnionRow(r, missingVal);
+      if (elAddTipo.checked) u['Tipo'] = r.__tipo;
+      finalRows.push(u);
+    });
+    projPag.rows.forEach(r=>{
+      const u = toUnionRow(r, missingVal);
+      if (elAddTipo.checked) u['Tipo'] = r.__tipo;
+      finalRows.push(u);
+    });
+
+    // Estatísticas
+    const nRec = projRec.rows.length;
+    const nPag = projPag.rows.length;
+    const total = finalRows.length;
+
+    // Prévia
+    setStatus('Gerando prévia…', true);
+    elPreview.innerHTML = makePreviewTable(headersFinal, finalRows);
+
+    // Download
+    const delim = elDelim.value;
+    const csv = buildCSV(headersFinal, finalRows, delim);
+    const blob = new Blob([csv], {type:"text/csv;charset=utf-8"});
+    const url = URL.createObjectURL(blob);
+    elDL.href = url;
+    elDL.style.display='inline-block';
+
+    elStats.innerHTML = `
+      <span class="pill">Receber: <strong>${nRec}</strong> linhas</span>
+      <span class="pill">Pagar: <strong>${nPag}</strong> linhas</span>
+      <span class="pill">Total unificado: <strong>${total}</strong></span>
+      <span class="pill">Delimitador: <strong>${delim === ';' ? 'ponto e vírgula' : 'vírgula'}</strong></span>
+      <span class="pill">Placeholder: <strong>${missingVal===''?'(em branco)':missingVal}</strong></span>
+      ${elAddTipo.checked?'<span class="pill">+ coluna “Tipo”</span>':''}
+    `;
+
+    setStatus('Pronto! Revise a prévia e clique em “Baixar CSV”. ✅', true);
+  } catch(err){
+    console.error(err);
+    setStatus('Erro: ' + err.message);
+  } finally {
+    // remove "Tipo" se foi inserido dinamicamente para não duplicar numa 2ª execução
+    const tidx = unionCols.indexOf('Tipo');
+    if (tidx !== -1) unionCols.splice(tidx,1);
+  }
+});
+</script>
+</body>
+</html>

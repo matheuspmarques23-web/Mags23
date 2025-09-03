@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8" />
+<title>Unificador de CSVs — Motorhub</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root{
+    --bg:#0b1020; --card:#0f172a; --soft:#111a33; --muted:#94a3b8;
+    --text:#e5e7eb; --accent:#f26722; --accent-2:#ffd6c4; --ok:#16a34a; --warn:#f59e0b;
+    --radius:16px;
+  }
+  *{box-sizing:border-box} html,body{height:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--text); font:14px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell;
+  }
+  .wrap{max-width:1100px; margin:24px auto; padding:0 16px}
+  header{display:flex; align-items:center; gap:12px; margin-bottom:18px}
+  .dot{width:12px; height:12px; border-radius:50%; background:var(--accent)}
+  h1{font-size:20px; margin:0}
+  .card{background:var(--card); border:1px solid #1f2a44; border-radius:var(--radius); padding:16px}
+  .grid{display:grid; gap:12px}
+  @media (min-width:840px){ .grid{grid-template-columns:1fr 1fr} }
+  label{display:block; font-weight:600; margin-bottom:8px}
+  .box{
+    border:1px dashed #2a3554; background:var(--soft); padding:12px; border-radius:12px;
+    display:flex; align-items:center; justify-content:space-between; gap:8px;
+  }
+  input[type="file"]{max-width:100%; color:var(--muted)}
+  .hint{color:var(--muted); font-size:12px; margin-top:6px}
+  .actions{display:flex; flex-wrap:wrap; gap:10px; margin-top:14px}
+  button{
+    border:0; border-radius:12px; padding:10px 14px; font-weight:700; cursor:pointer;
+    background:var(--accent); color:#1b0b04; transition:transform .05s ease-in-out;
+  }
+  button:disabled{opacity:.5; cursor:not-allowed}
+  button:hover{transform:translateY(-1px)}
+  .ghost{background:#1f2a44; color:var(--text)}
+  .ok{background:var(--ok); color:#07140a}
+  .warn{background:var(--warn); color:#221902}
+  .badge{display:inline-flex; align-items:center; gap:6px; font-size:12px; padding:6px 8px; border-radius:10px; background:#1f2a44; color:var(--muted)}
+  table{width:100%; border-collapse:collapse; margin-top:12px; font-size:12px}
+  th,td{border-bottom:1px solid #1f2a44; padding:8px 6px; vertical-align:top}
+  th{position:sticky; top:0; background:var(--card); text-align:left}
+  .kpis{display:flex; gap:10px; flex-wrap:wrap; margin-top:8px}
+  .kpi{background:#101a31; border:1px solid #1f2a44; border-radius:10px; padding:10px 12px; font-size:12px; color:var(--muted)}
+  .footer-hint{color:var(--muted); font-size:12px; margin-top:8px}
+  .small{font-size:12px}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="dot"></div>
+      <h1>Unificador de CSVs — Motorhub</h1>
+      <span class="badge" id="status">aguardando arquivos…</span>
+    </header>
+
+    <div class="card grid">
+      <div>
+        <label>CSV MÃE (orçamentos)</label>
+        <div class="box">
+          <input id="fileMae" type="file" accept=".csv" />
+          <span class="small">Escolha o arquivo</span>
+        </div>
+        <div class="hint">Colunas esperadas (variações aceitas): <em>Número do Orçamento, Nome do Cliente, Placa, Veículo, Data de Entrada, Data de Autorização, Data de Fechamento, Data de Saída, Etiqueta, Status, Total</em></div>
+      </div>
+      <div>
+        <label>CSV DETALHES (itens/serviços)</label>
+        <div class="box">
+          <input id="fileDet" type="file" accept=".csv" />
+          <span class="small">Escolha o arquivo</span>
+        </div>
+        <div class="hint">Colunas esperadas: <em>OS/Compl, Tipo, Cliente, Descrição, Quant./Hrs., Preço, Total</em> (usamos só a parte de “OS/Compl” antes da “/”)</div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button id="btnMerge" disabled>Unir & Baixar CSV</button>
+      <button id="btnClear" class="ghost">Limpar</button>
+    </div>
+
+    <div class="kpis" id="kpis" style="display:none">
+      <div class="kpi" id="kpiMae"></div>
+      <div class="kpi" id="kpiDet"></div>
+      <div class="kpi" id="kpiMatch"></div>
+    </div>
+
+    <div class="card" id="preview" style="margin-top:16px; display:none">
+      <strong>Prévia (primeiras 150 linhas):</strong>
+      <div class="hint">A prévia é só para conferência visual. O download inclui todas as linhas.</div>
+      <div style="max-height:420px; overflow:auto">
+        <table id="tbl"></table>
+      </div>
+    </div>
+
+    <div class="footer-hint">
+      Dica: este arquivo roda 100% local, sem internet. Se quiser, posso aplicar sua paleta (laranja Motorhub) nos botões do dashboard final depois que validarmos a saída.
+    </div>
+  </div>
+
+<script>
+/* ------------------------- Utilidades ------------------------- */
+const $ = sel => document.querySelector(sel);
+const statusEl = $('#status');
+const fileMae = $('#fileMae');
+const fileDet = $('#fileDet');
+const btnMerge = $('#btnMerge');
+const btnClear = $('#btnClear');
+const kpis = $('#kpis');
+const kpiMae = $('#kpiMae');
+const kpiDet = $('#kpiDet');
+const kpiMatch = $('#kpiMatch');
+const tbl = $('#tbl');
+const previewCard = $('#preview');
+
+let dataMae = null, dataDet = null; // arrays de objetos
+let metaMae = {}, metaDet = {};      // metadados (delimitador, cols)
+
+function setStatus(txt){ statusEl.textContent = txt; }
+
+/* remove BOM, normaliza quebras e retorna texto */
+function cleanText(t){
+  if (!t) return '';
+  // remove BOM
+  if (t.charCodeAt(0) === 0xFEFF) t = t.slice(1);
+  // normaliza quebras
+  t = t.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  return t;
+}
+/* detecta delimitador ; ou , */
+function detectDelimiter(text){
+  const header = text.split('\n')[0] || '';
+  const count = d => (header.match(new RegExp(`\\${d}`, 'g'))||[]).length;
+  // heurística: se ; aparece mais, assume ;
+  if (count(';') > count(',')) return ';';
+  // tenta pelos 5 primeiros lines: escolhe o que mais mantém colunas constantes
+  const lines = text.split('\n').slice(0, 6);
+  let best = ',', bestScore = -1;
+  for (const d of [',',';']){
+    const counts = lines.map(l => splitCSVLine(l, d).length);
+    const uniq = new Set(counts).size;
+    const score = -uniq; // menos variação é melhor
+    if (score > bestScore){ bestScore = score; best = d; }
+  }
+  return best;
+}
+/* separa uma linha CSV respeitando aspas */
+function splitCSVLine(line, delim){
+  const out = []; let cur = ''; let q = false;
+  for (let i=0;i<line.length;i++){
+    const ch = line[i];
+    if (ch === '"'){
+      if (q && line[i+1] === '"'){ cur += '"'; i++; }
+      else { q = !q; }
+    } else if (ch === delim && !q){
+      out.push(cur); cur = '';
+    } else {
+      cur += ch;
+    }
+  }
+  out.push(cur);
+  return out;
+}
+/* parse CSV → array de objetos */
+function parseCSV(text){
+  text = cleanText(text);
+  const delim = detectDelimiter(text);
+  const lines = text.split('\n').filter(l => l.trim().length > 0);
+  if (!lines.length) return {rows:[], delim, headers:[]};
+  const headersRaw = splitCSVLine(lines[0], delim).map(s => s.replace(/^"(.*)"$/,'$1').trim());
+  const rows = [];
+  for (let i=1;i<lines.length;i++){
+    const cols = splitCSVLine(lines[i], delim).map(s => s.replace(/^"(.*)"$/,'$1'));
+    const obj = {};
+    for (let c=0;c<headersRaw.length;c++){
+      obj[headersRaw[c]] = (cols[c] ?? '').trim();
+    }
+    rows.push(obj);
+  }
+  return {rows, delim, headers:headersRaw};
+}
+/* remove acentos, baixa, normaliza */
+function norm(s){
+  return String(s||'')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .toLowerCase().replace(/[^a-z0-9/.\s]/g,' ').replace(/\s+/g,' ').trim();
+}
+/* encontra 1a coluna que bata com a lista de candidatos */
+function findCol(headers, candidates){
+  const map = {}; headers.forEach(h => map[norm(h)] = h);
+  for (const cand of candidates){
+    const n = norm(cand);
+    if (map[n]) return map[n];
+  }
+  // tentativa por "contains" frouxo
+  for (const h of headers){
+    for (const cand of candidates){
+      const n = norm(cand), hh = norm(h);
+      if (hh.includes(n) || n.includes(hh)) return h;
+    }
+  }
+  return null;
+}
+/* extrai parte antes da "/" e limpa não-dígitos para chave */
+function keyBase(s){
+  if (s==null) return '';
+  const left = String(s).split('/')[0].trim();
+  return left.replace(/\D+/g,''); // só dígitos
+}
+
+/* ------------------------- Leitura dos arquivos ------------------------- */
+fileMae.addEventListener('change', async (e)=>{
+  const f = e.target.files[0];
+  if (!f) return;
+  const text = await f.text();
+  const parsed = parseCSV(text);
+  dataMae = parsed.rows;
+  metaMae = {delim: parsed.delim, headers: parsed.headers};
+  setStatus('MÃE carregado. Agora selecione DETALHES.');
+  refreshUI();
+});
+fileDet.addEventListener('change', async (e)=>{
+  const f = e.target.files[0];
+  if (!f) return;
+  const text = await f.text();
+  const parsed = parseCSV(text);
+  dataDet = parsed.rows;
+  metaDet = {delim: parsed.delim, headers: parsed.headers};
+  setStatus('DETALHES carregado. Pronto para unir.');
+  refreshUI();
+});
+
+/* ------------------------- Merge + Download ------------------------- */
+btnMerge.addEventListener('click', ()=>{
+  if (!dataMae || !dataDet) return;
+
+  // Mapeamentos (com variações comuns)
+  const Hm = metaMae.headers;
+  const Hd = metaDet.headers;
+
+  const colNumMae = findCol(Hm, ['Número do Orçamento','Numero do Orçamento','Numero do Orcamento','Número do Orcamento','Orçamento','OS','O.S.']);
+  const colCliMae = findCol(Hm, ['Nome do Cliente','Cliente']);
+  const colPlaca  = findCol(Hm, ['Placa']);
+  const colVeic   = findCol(Hm, ['Veículo','Veiculo']);
+  const colEnt    = findCol(Hm, ['Data de Entrada','Entrada']);
+  const colAut    = findCol(Hm, ['Data de Autorização','Autorizado','Data Autorizacao']);
+  const colFec    = findCol(Hm, ['Data de Fechamento','Fechado','Data de fechamento']);
+  const colSai    = findCol(Hm, ['Data de Saída','Saída','Entrega','Data de Saida']);
+  const colEti    = findCol(Hm, ['Etiqueta','Marcação','Marcacao','Tag']);
+  const colSta    = findCol(Hm, ['Status','Situação da O.S.','Situação','Situacao']);
+  const colTotMae = findCol(Hm, ['Total','Valor total da O.S.','Valor total do pagamento','Valor total','Total CP']);
+
+  const colOSCompl= findCol(Hd, ['OS/Compl','OS/Complemento','OS','O.S.']);
+  const colTipo   = findCol(Hd, ['Tipo']);
+  const colCliDet = findCol(Hd, ['Cliente','Nome do Cliente']);
+  const colDesc   = findCol(Hd, ['Descrição','Descricao']);
+  const colQtd    = findCol(Hd, ['Quant./Hrs.','Quantidade','Quant','Quant./Hrs']);
+  const colPreco  = findCol(Hd, ['Preço','Preco','Valor Unitário','Valor Unitario']);
+  const colTotDet = findCol(Hd, ['Total','Valor total','Subtotal']);
+
+  // validações mínimas
+  if(!colNumMae){ alert('Não encontrei "Número do Orçamento" no CSV MÃE.'); return; }
+  if(!colOSCompl){ alert('Não encontrei "OS/Compl" (ou equivalente) no CSV DETALHES.'); return; }
+
+  // index do MÃE por chave numérica
+  const idxMae = new Map();
+  for (const r of dataMae){
+    const k = keyBase(r[colNumMae]);
+    if (k) idxMae.set(k, r);
+  }
+
+  // cabeçalho de saída (exato como solicitado)
+  const headersOut = [
+    'Numero do Orçamento','Cliente','Placa','Veículo',
+    'Data de Entrada','Data de Autorização','Data de fechamento','Data de Saída',
+    'Etiqueta','Status','Total CP',
+    'OS/Complemento','Tipo','Cliente','Descrição','Quant./Hrs.','Preço','Total'
+  ];
+
+  const out = [];
+  let matches = 0;
+  for (const d of dataDet){
+    const k = keyBase(d[colOSCompl]);
+    const m = k ? idxMae.get(k) : null;
+    if (!m) continue; // ignora itens sem MÃE correspondente
+    matches++;
+
+    out.push({
+      'Numero do Orçamento': (m[colNumMae] ?? '').toString().trim(),
+      'Cliente': (m[colCliMae] ?? '').toString().trim(),
+      'Placa': (m[colPlaca] ?? '').toString().trim(),
+      'Veículo': (m[colVeic] ?? '').toString().trim(),
+      'Data de Entrada': (m[colEnt] ?? '').toString().trim(),
+      'Data de Autorização': (m[colAut] ?? '').toString().trim(),
+      'Data de fechamento': (m[colFec] ?? '').toString().trim(),
+      'Data de Saída': (m[colSai] ?? '').toString().trim(),
+      'Etiqueta': (m[colEti] ?? '').toString().trim(),
+      'Status': (m[colSta] ?? '').toString().trim(),
+      'Total CP': (m[colTotMae] ?? '').toString().trim(),
+      'OS/Complemento': (d[colOSCompl] ?? '').toString().split('/')[0].trim(),
+      'Tipo': (colTipo ? d[colTipo] : '').toString().trim(),
+      'Cliente': (colCliDet ? d[colCliDet] : '').toString().trim(),            // mantém o nome "Cliente" (pode ficar igual ao do MÃE)
+      'Descrição': (colDesc ? d[colDesc] : '').toString().trim(),
+      'Quant./Hrs.': (colQtd ? d[colQtd] : '').toString().trim(),
+      'Preço': (colPreco ? d[colPreco] : '').toString().trim(),
+      'Total': (colTotDet ? d[colTotDet] : '').toString().trim(),
+    });
+  }
+
+  // KPIs
+  kpis.style.display = 'flex';
+  kpiMae.textContent = `MÃE: ${dataMae.length} linhas (${metaMae.delim} como separador)`;
+  kpiDet.textContent = `DETALHES: ${dataDet.length} linhas (${metaDet.delim} como separador)`;
+  kpiMatch.textContent = `Itens combinados: ${matches}`;
+
+  // preview
+  renderTable(headersOut, out.slice(0,150));
+  previewCard.style.display = 'block';
+
+  // download
+  const csv = toCSV(headersOut, out);
+  downloadFile(csv, `BaseUnificada_${new Date().toISOString().slice(0,10)}.csv`, 'text/csv;charset=utf-8');
+  setStatus(`Unidos ${matches} itens com cabeçalho. CSV baixado.`);
+});
+
+btnClear.addEventListener('click', ()=>{
+  fileMae.value = ''; fileDet.value = '';
+  dataMae = dataDet = null; metaMae = metaDet = {};
+  btnMerge.disabled = true;
+  kpis.style.display = 'none'; previewCard.style.display = 'none';
+  tbl.innerHTML = ''; setStatus('aguardando arquivos…');
+});
+
+function refreshUI(){
+  btnMerge.disabled = !(dataMae && dataDet);
+  if (dataMae && !dataDet) setStatus('MÃE ok. Falta DETALHES.');
+  if (dataDet && !dataMae) setStatus('DETALHES ok. Falta MÃE.');
+  if (dataMae && dataDet) setStatus('Pronto para unir.');
+}
+
+/* ------------------------- CSV → download ------------------------- */
+function toCSV(headers, rows){
+  const esc = v=>{
+    if (v==null) v='';
+    v = String(v);
+    if (/[",\n;]/.test(v)){
+      v = '"' + v.replace(/"/g,'""') + '"';
+    }
+    return v;
+  };
+  const delim = ','; // saída padronizada com vírgula
+  const out = [];
+  out.push(headers.map(esc).join(delim));
+  for (const r of rows){
+    out.push(headers.map(h => esc(r[h])).join(delim));
+  }
+  return out.join('\n');
+}
+function downloadFile(content, filename, mime){
+  const blob = new Blob([content], {type:mime});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); }, 100);
+}
+
+/* ------------------------- Tabela de prévia ------------------------- */
+function renderTable(headers, rows){
+  const ths = headers.map(h=>`<th>${h}</th>`).join('');
+  const trs = rows.map(r=>{
+    const tds = headers.map(h=>`<td>${(r[h]??'')
+      .toString()
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;')}</td>`).join('');
+    return `<tr>${tds}</tr>`;
+  }).join('');
+  tbl.innerHTML = `<thead><tr>${ths}</tr></thead><tbody>${trs}</tbody>`;
+}
+</script>
+</body>
+</html>

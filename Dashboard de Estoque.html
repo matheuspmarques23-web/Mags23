@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dashboard de Estoque — Listas (Top 10 / Top 5)</title>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.20.3/dist/xlsx.full.min.js"></script>
+  <style>
+    :root{
+      --bg:#0d1117; --card:#161b22; --muted:#8b949e; --text:#c9d1d9; --accent:#2f81f7; --ok:#3fb950; --warn:#d29922; --bad:#f85149;
+      --shadow: 0 10px 30px rgba(0,0,0,.35);
+    }
+    *{box-sizing:border-box}
+    body{margin:0; font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,Helvetica,Arial,"Apple Color Emoji","Segoe UI Emoji"; background:var(--bg); color:var(--text)}
+    header{position:sticky; top:0; z-index:5; background:linear-gradient(180deg, rgba(13,17,23,.95) 0%, rgba(13,17,23,.85) 100%); backdrop-filter: blur(6px); border-bottom:1px solid #222; padding:16px 20px}
+    h1{font-size:20px; margin:0 0 4px 0}
+    .sub{color:var(--muted); font-size:12px}
+    main{padding:20px; max-width:1300px; margin:0 auto}
+    .uploader{border:1px dashed #2a2f36; background:var(--card); padding:16px; border-radius:14px; display:flex; gap:12px; align-items:center; box-shadow:var(--shadow)}
+    .uploader input[type=file]{display:none}
+    .btn{cursor:pointer; background:var(--accent); color:white; border:0; padding:10px 14px; border-radius:10px; font-weight:600}
+    .ghost{background:#262b33}
+    .row{display:grid; gap:14px}
+    @media(min-width:900px){ .row.cols-2{grid-template-columns:1fr 1fr} .row.cols-3{grid-template-columns:1fr 1fr 1fr}}
+    .card{background:var(--card); border:1px solid #23282f; border-radius:16px; box-shadow:var(--shadow); padding:14px}
+    .card h2{font-size:16px; margin:0 0 10px 0; letter-spacing:.2px}
+    .kpis{display:grid; grid-template-columns: repeat(3, 1fr); gap:12px}
+    .kpi{background:#11161e; border:1px solid #23282f; border-radius:14px; padding:14px}
+    .kpi .label{color:var(--muted); font-size:12px}
+    .kpi .value{font-size:24px; font-weight:800; margin-top:6px}
+    .table-wrap{overflow:auto; max-height:420px; border:1px solid #23282f; border-radius:12px}
+    table{width:100%; border-collapse:collapse}
+    th, td{padding:10px 12px; border-bottom:1px solid #23282f; font-size:13px; text-align:left; white-space:nowrap}
+    th{position:sticky; top:0; background:#121821; z-index:1}
+    .note{color:var(--muted); font-size:12px; margin-top:8px}
+    .pill{display:inline-block; padding:2px 8px; border-radius:999px; font-size:11px; border:1px solid #2a2f36; color:var(--muted)}
+    .footer{color:var(--muted); font-size:12px; text-align:center; margin:30px 0 10px}
+    .hidden{display:none}
+    .grid2{display:grid; gap:12px}
+    @media(min-width:900px){ .grid2{grid-template-columns: 1.2fr .8fr} }
+    .caption{font-size:12px; color:var(--muted); margin-bottom:6px}
+    .hl{font-weight:600; color:#fff}
+    .abc-A{border-left:4px solid var(--ok); padding-left:10px}
+    .abc-B{border-left:4px solid var(--warn); padding-left:10px}
+    .abc-C{border-left:4px solid var(--bad); padding-left:10px}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Dashboard de Estoque</h1>
+    <div class="sub">
+      Ajustado às colunas do seu <b>relatorio_consolidado.csv</b>:
+      <span class="pill">Grupo</span>
+      <span class="pill">Peça/Insumo</span>
+      <span class="pill">Quantidade</span>
+      <span class="pill">Valor</span>
+      <span class="pill">Valor Total</span>
+      <span class="pill">Quantidade Entradas</span>
+      <span class="pill">Valor Entradas</span>
+      <span class="pill">Quantidade Saídas</span>
+      <span class="pill">Valor Saídas</span>
+      <span class="pill">Estoque Atual</span>
+    </div>
+  </header>
+
+  <main>
+    <div class="uploader">
+      <label for="file"><button class="btn">Selecionar planilha</button></label>
+      <input id="file" type="file" accept=".xlsx,.xls,.csv" />
+      <div class="pill">Detecta ; ou ,</div>
+    </div>
+
+    <div id="errors" class="note hidden" style="color:#f85149"></div>
+
+    <!-- Linha 3: Visão Geral -->
+    <section class="card">
+      <h2>Visão geral do Estoque</h2>
+      <div class="kpis">
+        <div class="kpi">
+          <div class="label">Quantidade total de itens</div>
+          <div id="kpi-itens" class="value">—</div>
+        </div>
+        <div class="kpi">
+          <div class="label">Valor total financeiro em estoque</div>
+          <div id="kpi-valor" class="value">—</div>
+          <div class="caption">Estoque Atual × Valor (fallback: Valor Total).</div>
+        </div>
+        <div class="kpi">
+          <div class="label">Itens ativos no estoque</div>
+          <div id="kpi-ativos" class="value">—</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Linha 1: Tabela por Grupo -->
+    <section class="card">
+      <h2>Tabela</h2>
+      <div class="table-wrap">
+        <table id="tbl-grupos">
+          <thead>
+            <tr>
+              <th>Grupo de Peças</th>
+              <th>Quantidade (soma)</th>
+              <th>Valor total em estoque</th>
+              <th>Quantidade de saídas</th>
+              <th>Estoque atual</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="note">Somatórios por <b>Grupo</b>.</div>
+    </section>
+
+    <!-- Linha 2: Curva ABC (tabela) -->
+    <section class="card">
+      <h2>Curva ABC</h2>
+      <div class="caption">Classificação por valor em estoque (desc): A ≈ 80%, B ≈ 15%, C ≈ 5%.</div>
+      <div class="table-wrap" style="max-height:340px">
+        <table id="tbl-abc">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Peça/Insumo</th>
+              <th>Grupo</th>
+              <th>Valor unit.</th>
+              <th>Estoque Atual</th>
+              <th>Valor Total Item</th>
+              <th>% Acum.</th>
+              <th>Classe</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Linha 4: Top 10 Itens (LISTAS) -->
+    <section class="card">
+      <h2>Top 10 itens</h2>
+      <div class="row cols-2">
+        <div>
+          <div class="caption">Mais saídas (Quantidade Saídas)</div>
+          <div class="table-wrap">
+            <table id="tbl-top10-saidas">
+              <thead>
+                <tr>
+                  <th>#</th><th>Item</th><th>Grupo</th><th>Quantidade Saídas</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <div>
+          <div class="caption">Mais entradas (Quantidade Entradas)</div>
+          <div class="table-wrap">
+            <table id="tbl-top10-entradas">
+              <thead>
+                <tr>
+                  <th>#</th><th>Item</th><th>Grupo</th><th>Quantidade Entradas</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Linha 5: Top 5 Grupos (LISTAS) -->
+    <section class="card">
+      <h2>Top 5 grupos</h2>
+      <div class="row cols-2">
+        <div>
+          <div class="caption">Grupos com mais saídas</div>
+          <div class="table-wrap">
+            <table id="tbl-top5-grp-saidas">
+              <thead>
+                <tr><th>#</th><th>Grupo</th><th>Quantidade Saídas</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <div>
+          <div class="caption">Grupos com mais entradas</div>
+          <div class="table-wrap">
+            <table id="tbl-top5-grp-entradas">
+              <thead>
+                <tr><th>#</th><th>Grupo</th><th>Quantidade Entradas</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="footer">Versão com Top 10 / Top 5 por <b>listas</b>. Pronto para CSV/XLS/XLSX.</div>
+  </main>
+
+<script>
+(function(){
+  const $ = (q, el=document)=> el.querySelector(q);
+  const money = (n)=> isFinite(n)? n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}): '—';
+  const numBR = (v)=> {
+    if(v===undefined || v===null) return NaN;
+    return +String(v).replace(/\./g,'').replace(',','.');
+  };
+  const MAP = {
+    grupo: ['grupo'],
+    item: ['peça/insumo','peca/insumo','﻿peça/insumo'],
+    qtd: ['quantidade'],
+    valor: ['valor'],
+    valor_total: ['valor total'],
+    entradas_qt: ['quantidade entradas'],
+    entradas_vl: ['valor entradas'],
+    saidas_qt: ['quantidade saídas','quantidade saidas'],
+    saidas_vl: ['valor saídas','valor saidas'],
+    estoque_atual: ['estoque atual']
+  };
+
+  const fileInput = $('#file');
+  const drop = document.querySelector('.uploader');
+  const errBox = $('#errors');
+
+  ['dragenter','dragover','dragleave','drop'].forEach(ev => {
+    drop.addEventListener(ev, e=>{
+      e.preventDefault();
+      drop.style.borderColor = (ev==='dragenter' || ev==='dragover') ? '#3b82f6' : '#2a2f36';
+    });
+  });
+  drop.addEventListener('drop', e=>{
+    const f = e.dataTransfer.files?.[0];
+    if(f) handleFile(f);
+  });
+  fileInput.addEventListener('change', e=>{
+    const f = e.target.files?.[0];
+    if(f) handleFile(f);
+  });
+
+  async function handleFile(file){
+    clearError();
+    try{
+      const data = await file.arrayBuffer();
+      let rows = [];
+      if(file.name.toLowerCase().endsWith('.csv')){
+        const text = new TextDecoder('utf-8').decode(new Uint8Array(data)).replace(/^\uFEFF/, '');
+        const sep = (text.split(';').length > text.split(',').length) ? ';' : ',';
+        rows = text.split(/\r?\n/).filter(Boolean).map(l=> l.split(sep));
+      } else {
+        const wb = XLSX.read(data, {type:'array'});
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        rows = XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:''});
+      }
+      if(!rows.length) throw new Error('Arquivo vazio.');
+
+      const header = rows[0].map(h => String(h).trim());
+      const idx = {};
+      header.forEach((h,i)=> idx[h.toLowerCase()] = i);
+
+      function colOf(keys){
+        for(const k of keys){ if(idx[k]!=null) return idx[k]; }
+        return null;
+      }
+
+      const col = {
+        grupo: colOf(MAP.grupo),
+        item: colOf(MAP.item),
+        qtd: colOf(MAP.qtd),
+        valor: colOf(MAP.valor),
+        valor_total: colOf(MAP.valor_total),
+        entradas_qt: colOf(MAP.entradas_qt),
+        entradas_vl: colOf(MAP.entradas_vl),
+        saidas_qt: colOf(MAP.saidas_qt),
+        saidas_vl: colOf(MAP.saidas_vl),
+        estoque_atual: colOf(MAP.estoque_atual),
+      };
+
+      const required = ['grupo','item','valor','estoque_atual'];
+      const missing = required.filter(k=> col[k]==null);
+      if(missing.length){
+        throw new Error('Colunas obrigatórias ausentes: ' + missing.join(', '));
+      }
+
+      const body = rows.slice(1).filter(r=> r && r.length && r.some(c=> String(c).trim()!==''));
+      const dataRows = body.map(r=> ({
+        grupo: String(r[col.grupo]).trim(),
+        item: String(r[col.item]).trim(),
+        qtd: col.qtd!=null ? numBR(r[col.qtd]) : NaN,
+        valor: numBR(r[col.valor]),
+        valor_total: col.valor_total!=null ? numBR(r[col.valor_total]) : NaN,
+        entradas_qt: col.entradas_qt!=null ? numBR(r[col.entradas_qt]) : 0,
+        saidas_qt: col.saidas_qt!=null ? numBR(r[col.saidas_qt]) : 0,
+        estoque_atual: numBR(r[col.estoque_atual])
+      })).filter(o=> o.item);
+
+      computeAll(dataRows);
+    }catch(err){
+      showError('Erro ao processar: ' + err.message);
+      console.error(err);
+    }
+  }
+
+  function showError(msg){ const b=$('#errors'); b.textContent=msg; b.classList.remove('hidden'); }
+  function clearError(){ const b=$('#errors'); b.textContent=''; b.classList.add('hidden'); }
+
+  function computeAll(rows){
+    // KPIs
+    const totalItens = rows.length;
+    const valorEmEstoqueItem = (r)=> isFinite(r.estoque_atual) && isFinite(r.valor) ? r.estoque_atual * r.valor
+                                      : (isFinite(r.valor_total) ? r.valor_total : 0);
+    const totalValor = rows.reduce((s,r)=> s + (valorEmEstoqueItem(r)||0), 0);
+    const ativos = rows.filter(r=> (r.estoque_atual||0) > 0).length;
+    $('#kpi-itens').textContent = totalItens.toLocaleString('pt-BR');
+    $('#kpi-valor').textContent = totalValor.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+    $('#kpi-ativos').textContent = ativos.toLocaleString('pt-BR');
+
+    // Tabela por grupo
+    const byG = {};
+    for(const r of rows){
+      const g = r.grupo || '—';
+      if(!byG[g]) byG[g] = {qtd:0, valor:0, saidas:0, estoque:0, entradas:0};
+      byG[g].qtd += (isFinite(r.qtd)? r.qtd : 0);
+      byG[g].valor += (valorEmEstoqueItem(r)||0);
+      byG[g].saidas += (r.saidas_qt||0);
+      byG[g].estoque += (r.estoque_atual||0);
+      byG[g].entradas += (r.entradas_qt||0);
+    }
+    const tbody = document.querySelector('#tbl-grupos tbody');
+    tbody.innerHTML = '';
+    Object.entries(byG).sort((a,b)=> a[0].localeCompare(b[0], 'pt-BR')).forEach(([g,v])=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${escapeHtml(g)}</td>
+        <td>${(v.qtd).toLocaleString('pt-BR')}</td>
+        <td>${(v.valor).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}</td>
+        <td>${(v.saidas).toLocaleString('pt-BR')}</td>
+        <td>${(v.estoque).toLocaleString('pt-BR')}</td>`;
+      tbody.appendChild(tr);
+    });
+
+    // Curva ABC (tabela com ordem + % acumulado)
+    const items = rows.map(r=> ({...r, valorItem: valorEmEstoqueItem(r)})).sort((a,b)=> b.valorItem - a.valorItem);
+    const total = items.reduce((s,r)=> s + r.valorItem, 0) || 1;
+    let acc = 0;
+    const tABC = document.querySelector('#tbl-abc tbody'); tABC.innerHTML='';
+    items.forEach((r,i)=>{
+      acc += r.valorItem;
+      const p = (acc/total)*100;
+      const cls = p<=80 ? 'A' : (p<=95 ? 'B' : 'C');
+      const tr = document.createElement('tr');
+      tr.className = 'abc-' + cls;
+      tr.innerHTML = `<td>${i+1}</td>
+        <td>${escapeHtml(r.item)}</td>
+        <td>${escapeHtml(r.grupo)}</td>
+        <td>${(r.valor).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}</td>
+        <td>${(r.estoque_atual).toLocaleString('pt-BR')}</td>
+        <td>${(r.valorItem).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}</td>
+        <td>${p.toFixed(1)}%</td>
+        <td>${cls}</td>`;
+      tABC.appendChild(tr);
+    });
+
+    // Top 10 Itens — LISTAS
+    const topSaidas = rows.slice().sort((a,b)=> (b.saidas_qt||0)-(a.saidas_qt||0)).slice(0,10);
+    const bodySaidas = document.querySelector('#tbl-top10-saidas tbody'); bodySaidas.innerHTML='';
+    topSaidas.forEach((r,i)=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${i+1}</td><td>${escapeHtml(r.item)}</td><td>${escapeHtml(r.grupo)}</td><td>${(r.saidas_qt||0).toLocaleString('pt-BR')}</td>`;
+      bodySaidas.appendChild(tr);
+    });
+
+    const topEntradas = rows.slice().sort((a,b)=> (b.entradas_qt||0)-(a.entradas_qt||0)).slice(0,10);
+    const bodyEntradas = document.querySelector('#tbl-top10-entradas tbody'); bodyEntradas.innerHTML='';
+    topEntradas.forEach((r,i)=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${i+1}</td><td>${escapeHtml(r.item)}</td><td>${escapeHtml(r.grupo)}</td><td>${(r.entradas_qt||0).toLocaleString('pt-BR')}</td>`;
+      bodyEntradas.appendChild(tr);
+    });
+
+    // Top 5 Grupos — LISTAS
+    const grpArr = Object.entries(byG).map(([g,v])=> ({g, ...v}));
+    const grpSaidas = grpArr.slice().sort((a,b)=> b.saidas - a.saidas).slice(0,5);
+    const bodyGrpSaidas = document.querySelector('#tbl-top5-grp-saidas tbody'); bodyGrpSaidas.innerHTML='';
+    grpSaidas.forEach((r,i)=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${i+1}</td><td>${escapeHtml(r.g)}</td><td>${(r.saidas).toLocaleString('pt-BR')}</td>`;
+      bodyGrpSaidas.appendChild(tr);
+    });
+
+    const grpEntradas = grpArr.slice().sort((a,b)=> b.entradas - a.entradas).slice(0,5);
+    const bodyGrpEntradas = document.querySelector('#tbl-top5-grp-entradas tbody'); bodyGrpEntradas.innerHTML='';
+    grpEntradas.forEach((r,i)=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${i+1}</td><td>${escapeHtml(r.g)}</td><td>${(r.entradas).toLocaleString('pt-BR')}</td>`;
+      bodyGrpEntradas.appendChild(tr);
+    });
+  }
+
+  function escapeHtml(s){ return String(s).replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c])); }
+})();
+</script>
+</body>
+</html>
