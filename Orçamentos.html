@@ -222,7 +222,11 @@
 
   <!-- ABA: ANÁLISES -->
   <section id="analises" class="tabContent hidden">
-    <div class="grid cols-2">
+    <div class="card">
+      <div class="label">Faturamento Acumulado (linha)</div>
+      <canvas id="chartAcumulado"></canvas>
+    </div>
+    <div class="grid cols-3">
       <div class="card">
         <div class="label">Distribuição Financeira</div>
         <canvas id="chartDistribFinanceira"></canvas>
@@ -230,10 +234,6 @@
       <div class="card">
         <div class="label">Pipeline / Controle</div>
         <canvas id="chartPipeline"></canvas>
-      </div>
-      <div class="card">
-        <div class="label">Faturamento Acumulado (linha)</div>
-        <canvas id="chartAcumulado"></canvas>
       </div>
       <div class="card">
         <div class="label">Top 10 Clientes por Faturamento</div>
@@ -246,6 +246,22 @@
       <div class="card">
         <div class="label">Mês × Controle (barras empilhadas)</div>
         <canvas id="chartMesControle"></canvas>
+      </div>
+      <div class="card">
+        <div class="label">Mix Serviços × Peças (R$ e %)</div>
+        <canvas id="chartMixServPecas"></canvas>
+      </div>
+      <div class="card">
+        <div class="label">Valor × Tempo (dispersão)</div>
+        <canvas id="chartValTempo"></canvas>
+      </div>
+      <div class="card">
+        <div class="label">Aging (WIP)</div>
+        <canvas id="chartAging"></canvas>
+      </div>
+      <div class="card">
+        <div class="label">Pareto de itens/serviços</div>
+        <canvas id="chartPareto"></canvas>
       </div>
     </div>
   </section>
@@ -725,6 +741,18 @@ async function importCSV(file){
       rec._df = parseDateStrict(rec["Data de Fechamento"]);
       rec._ds = parseDateStrict(rec["Data de Saída"]);
 
+      const findPos = keys => {
+        for(const k of keys){
+          const p = index[normalizeKey(k)];
+          if(p>=0) return p;
+        }
+        return -1;
+      };
+      const posServ = findPos(["Total Serviços","Total Servicos","Serviços CP","Servicos CP","Serviços","Servicos"]);
+      const posPec  = findPos(["Total Peças","Total Pecas","Peças CP","Pecas CP","Peças","Pecas"]);
+      rec._serv = posServ>=0 ? parseMoneyCell(normalizeVal(row[posServ])) : 0;
+      rec._pec  = posPec>=0 ? parseMoneyCell(normalizeVal(row[posPec])) : 0;
+
       return rec;
     });
 
@@ -1134,6 +1162,84 @@ function updateAnalises(){
       plugins:{ legend:{labels:{color:text}} },
       responsive:true,
       scales:{ x:{ stacked:true, ticks:{color:muted} }, y:{ stacked:true, ticks:{color:muted}} }
+    }
+  });
+
+  // Mix Serviços × Peças (R$ e %)
+  const mix = { serv:0, pec:0 };
+  data.forEach(r=>{ mix.serv += r._serv||0; mix.pec += r._pec||0; });
+  chartsAnalises.mix = new Chart(document.getElementById('chartMixServPecas'), {
+    type:'doughnut',
+    data:{ labels:['Serviços','Peças'], datasets:[{ data:[mix.serv, mix.pec] }] },
+    options:{
+      plugins:{ legend:{labels:{color:text}}, tooltip:{ callbacks:{ label:(ctx)=>{
+        const total = mix.serv+mix.pec;
+        const pct = total? (ctx.parsed/total*100).toFixed(1):0;
+        return `${ctx.label}: ${fmtMoney(ctx.parsed)} (${pct}%)`;
+      } } }
+    }
+  });
+
+  // Valor × Tempo (dispersão)
+  const scatterData = data.filter(r=>r._de && r._ds).map(r=>({
+    x:(r._ds - r._de)/86400000,
+    y:parseMoneyCell(r["Total CP"])
+  }));
+  chartsAnalises.valtempo = new Chart(document.getElementById('chartValTempo'), {
+    type:'scatter',
+    data:{ datasets:[{ label:'Orçamentos', data: scatterData }] },
+    options:{
+      plugins:{ legend:{labels:{color:text}}, tooltip:{ callbacks:{ label:(c)=>`Dias: ${c.parsed.x}, Valor: ${fmtMoney(c.parsed.y)}` }} },
+      scales:{
+        x:{ticks:{color:muted}, title:{display:true, text:'Dias'}},
+        y:{ticks:{color:muted, callback:(v)=>'R$ '+Number(v).toLocaleString('pt-BR')}, title:{display:true,text:'Valor'}}
+      }
+    }
+  });
+
+  // Aging (WIP)
+  const today = new Date();
+  const agingBuckets = { '0-7':0, '8-15':0, '16-30':0, '31+':0 };
+  data.filter(r=>!r._ds && r._de).forEach(r=>{
+    const d = Math.floor((today - r._de)/86400000);
+    if(d<=7) agingBuckets['0-7']++;
+    else if(d<=15) agingBuckets['8-15']++;
+    else if(d<=30) agingBuckets['16-30']++;
+    else agingBuckets['31+']++;
+  });
+  chartsAnalises.aging = new Chart(document.getElementById('chartAging'), {
+    type:'bar',
+    data:{ labels:Object.keys(agingBuckets), datasets:[{ label:'Qtd', data:Object.values(agingBuckets) }] },
+    options:{ plugins:{ legend:{labels:{color:text}} }, scales:{ x:{ticks:{color:muted}}, y:{ticks:{color:muted}} } }
+  });
+
+  // Pareto de itens/serviços
+  const byItem = {};
+  data.forEach(r=>{
+    const k = r.Etiqueta || '—';
+    byItem[k] = (byItem[k]||0) + parseMoneyCell(r["Total CP"]);
+  });
+  const sortedItems = Object.entries(byItem).sort((a,b)=>b[1]-a[1]);
+  const labelsP = sortedItems.map(x=>x[0]);
+  const valsP = sortedItems.map(x=>x[1]);
+  const totalP = sum(valsP, x=>x);
+  const acumP = [];
+  valsP.reduce((a,b,i)=>{ acumP[i] = totalP? (a+b)/totalP*100 : 0; return a+b; },0);
+  chartsAnalises.pareto = new Chart(document.getElementById('chartPareto'), {
+    data:{
+      labels: labelsP,
+      datasets:[
+        { type:'bar', label:'Valor', data: valsP, yAxisID:'y' },
+        { type:'line', label:'% Acumulado', data: acumP, yAxisID:'y1', borderColor: text, backgroundColor: text, fill:false, tension:.1 }
+      ]
+    },
+    options:{
+      plugins:{ legend:{labels:{color:text}}, tooltip:{ callbacks:{ label:(ctx)=> ctx.datasetIndex===0 ? fmtMoney(ctx.parsed.y) : ctx.parsed.y.toFixed(1)+'%' }} },
+      scales:{
+        x:{ticks:{color:muted}},
+        y:{position:'left', ticks:{color:muted, callback:(v)=>'R$ '+Number(v).toLocaleString('pt-BR')}},
+        y1:{position:'right', ticks:{color:muted, callback:(v)=>v+'%'}, grid:{drawOnChartArea:false}}
+      }
     }
   });
 }
