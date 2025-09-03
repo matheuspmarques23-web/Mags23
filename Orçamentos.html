@@ -1182,11 +1182,19 @@ async function readAsDataURL(file){
 }
 async function handleLogoFile(file){
   if(!file) return;
-  const dataUrl = await readAsDataURL(file);
+  let dataUrl;
+  try{
+    dataUrl = await readAsDataURL(file);
+  }catch(e){
+    console.error('Falha ao ler arquivo da logo.', e);
+    alert('Não foi possível ler o arquivo da logo.');
+    return;
+  }
   try{
     localStorage.setItem('companyLogoDataUrl', dataUrl);
   }catch(e){
     console.warn('Não foi possível persistir a logo no localStorage.', e);
+    alert('Não foi possível salvar a logo no navegador.');
   }
   applyLogo(dataUrl);
 }
@@ -1211,13 +1219,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Logo inicial
   const storedLogo = localStorage.getItem('companyLogoDataUrl');
-  if(storedLogo){ applyLogo(storedLogo); }
+  if(storedLogo){
+    const img = new Image();
+    img.onload = () => applyLogo(storedLogo);
+    img.onerror = () => {
+      localStorage.removeItem('companyLogoDataUrl');
+      console.warn('Logo inválida removida do localStorage.');
+    };
+    img.src = storedLogo;
+  }
 
   // Listeners gerais
   document.getElementById('themeBtn').addEventListener('click', toggleTheme);
 
   const logoInput = document.getElementById('logoInput');
-  logoInput.addEventListener('change', (e)=> handleLogoFile(e.target.files[0]));
+  logoInput.addEventListener('change', (e)=> {
+    handleLogoFile(e.target.files[0]);
+    e.target.value = '';
+  });
 
   const fileInput = document.getElementById('fileInput');
   fileInput.addEventListener('change', async (e) => {
