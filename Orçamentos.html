@@ -739,28 +739,67 @@ async function importCSV(file){
     const recognized = headers.filter(h => index[normalizeKey(h)] >= 0);
     if(!recognized.length) throw new Error("Cabeçalhos do CSV não reconhecidos");
 
-    const data = [];
+    const getIdx = (...names) => {
+      for(const n of names){
+        const pos = index[normalizeKey(n)];
+        if(pos >= 0) return pos;
+      }
+      return -1;
+    };
+
+    const idxNumero = getIdx('Numero do Orçamento','Numero OS','Nº OS');
+    const idxTipo = getIdx('Tipo','Tipo de item','Tipo do item');
+    const idxDesc = getIdx('Descrição','Descricao','Descrição do item');
+    const idxQtd = getIdx('Quantidade','Qtd');
+    const idxPreco = getIdx('Preço','Preco','Preço Unitário','Valor Unitário');
+    const idxTot = getIdx('Total','Valor total','Total do item');
+
+    const map = new Map();
     for(let i=0;i<rows.length;i++){
       const row = rows[i];
-      const rec = {};
-      headers.forEach(h => {
-        const pos = index[normalizeKey(h)];
-        rec[h] = pos >= 0 ? normalizeVal(row[pos]) : "";
-      });
+      const osRaw = idxNumero>=0 ? normalizeVal(row[idxNumero]) : '';
+      if(!osRaw) continue;
+      const osKey = osRaw.replace(/\D/g,'');
+      let rec = map.get(osKey);
+      if(!rec){
+        rec = {servicos:[], pecas:[], totalGeral:0, totalServicos:0, totalPecas:0};
+        headers.forEach(h => {
+          const pos = index[normalizeKey(h)];
+          rec[h] = pos >= 0 ? normalizeVal(row[pos]) : "";
+        });
+        rec._de = parseDateStrict(rec["Data de Entrada"]);
+        rec._da = parseDateStrict(rec["Data de Autorização"]);
+        rec._df = parseDateStrict(rec["Data de Fechamento"]);
+        rec._ds = parseDateStrict(rec["Data de Saída"]);
+        map.set(osKey, rec);
+      }
 
-      rec._de = parseDateStrict(rec["Data de Entrada"]);
-      rec._da = parseDateStrict(rec["Data de Autorização"]);
-      rec._df = parseDateStrict(rec["Data de Fechamento"]);
-      rec._ds = parseDateStrict(rec["Data de Saída"]);
+      const tipo = idxTipo>=0 ? normalizeVal(row[idxTipo]) : '';
+      const item = {
+        tipo,
+        descricao: idxDesc>=0 ? normalizeVal(row[idxDesc]) : '',
+        quantidade: idxQtd>=0 ? parseFloat(normalizeVal(row[idxQtd]).replace('.', '').replace(',', '.'))||0 : 0,
+        preco: idxPreco>=0 ? parseMoneyCell(row[idxPreco]) : 0,
+        total: idxTot>=0 ? parseMoneyCell(row[idxTot]) : 0
+      };
 
-      data.push(rec);
+      rec.totalGeral += item.total;
+      if(tipo.toLowerCase().startsWith('s')){
+        rec.servicos.push(item);
+        rec.totalServicos += item.total;
+      }else{
+        rec.pecas.push(item);
+        rec.totalPecas += item.total;
+      }
+      rec["Total CP"] = rec.totalGeral;
+
       if((i+1)%100===0 || i===rows.length-1){
         diagProgress.textContent = `Processando ${i+1}/${rows.length}`;
       }
     }
 
-    DATA = data;
-    diagLines.textContent = String(data.length);
+    DATA = Array.from(map.values());
+    diagLines.textContent = String(DATA.length);
     diagProgress.textContent = 'Concluído';
 
     updateYearSelect();
