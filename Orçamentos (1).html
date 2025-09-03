@@ -261,6 +261,22 @@
         <div class="label">Ticket Médio Mensal</div>
         <canvas id="chartTicketMedio"></canvas>
       </div>
+      <div class="card">
+        <div class="label">Mix Serviços × Peças (R$ e %)</div>
+        <canvas id="chartMixServPecas"></canvas>
+      </div>
+      <div class="card">
+        <div class="label">Valor × Tempo (dispersão) — r = correlação</div>
+        <canvas id="chartValorTempo"></canvas>
+      </div>
+      <div class="card">
+        <div class="label">Aging (WIP) — OS em aberto por faixas (dias)</div>
+        <canvas id="chartAgingWIP"></canvas>
+      </div>
+      <div class="card">
+        <div class="label">Pareto de Itens/Serviços (80/20)</div>
+        <canvas id="chartParetoItens"></canvas>
+      </div>
     </div>
   </section>
 
@@ -1287,6 +1303,28 @@ function groupBy(arr, keyFn){
 }
 function sum(arr, sel){ return arr.reduce((a,b)=>a+sel(b),0); }
 
+function daysBetween(a, b){
+  if(!(a instanceof Date) || isNaN(a) || !(b instanceof Date) || isNaN(b)) return 0;
+  return (b - a) / 86400000;
+}
+
+function pearson(xs, ys){
+  const n = Math.min(xs.length, ys.length);
+  if(n < 2) return 0;
+  let sx=0, sy=0, sxx=0, syy=0, sxy=0;
+  for(let i=0;i<n;i++){
+    const x = xs[i], y = ys[i];
+    sx += x; sy += y;
+    sxx += x*x; syy += y*y;
+    sxy += x*y;
+  }
+  const cov = (sxy - (sx*sy)/n) / n;
+  const vx  = (sxx - (sx*sx)/n) / n;
+  const vy  = (syy - (sy*sy)/n) / n;
+  const denom = Math.sqrt(vx * vy);
+  return denom>0 ? (cov/denom) : 0;
+}
+
 function updateAnalises(){
   const data = currentYearData();
   const { text, muted } = chartColors();
@@ -1438,6 +1476,167 @@ function updateAnalises(){
       plugins:{ legend:{labels:{color:text}} },
       responsive:true,
       scales:{ x:{ stacked:true, ticks:{color:muted} }, y:{ stacked:true, ticks:{color:muted}} }
+    }
+  });
+
+  // ===== Mix Serviços × Peças
+  let totServ = 0, totPecas = 0;
+  data.forEach(r=>{
+    if (classifyRec(r).fin === 'Faturado'){
+      totServ  += (r.totalServicos || 0);
+      totPecas += (r.totalPecas   || 0);
+    }
+  });
+  const mixTotal = totServ + totPecas;
+  const mixPercServ  = mixTotal ? (totServ  / mixTotal) * 100 : 0;
+  const mixPercPecas = mixTotal ? (totPecas / mixTotal) * 100 : 0;
+
+  chartsAnalises.mix = new Chart(document.getElementById('chartMixServPecas'), {
+    type: 'bar',
+    data: {
+      labels: ['Serviços','Peças'],
+      datasets: [
+        { label: 'R$', data: [totServ, totPecas], yAxisID: 'y' },
+        { label: '% do faturado', data: [mixPercServ, mixPercPecas], type: 'line', yAxisID: 'y1', tension: .25, fill: false }
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { labels: { color: text } },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => ctx.dataset.yAxisID==='y'
+              ? ('R$ ' + Number(ctx.parsed.y||0).toLocaleString('pt-BR'))
+              : (ctx.parsed.y.toFixed(1) + '%')
+          }
+        }
+      },
+      scales: {
+        x: { ticks: { color: muted }, grid: { color: muted+'30' } },
+        y: {
+          position:'left', ticks: { color: muted, callback:(v)=>'R$ '+Number(v).toLocaleString('pt-BR') },
+          grid:{ color: muted+'30' }
+        },
+        y1: {
+          position:'right', min:0, max:100, ticks:{ color: muted, callback:(v)=>v+'%' },
+          grid:{ drawOnChartArea:false }
+        }
+      }
+    }
+  });
+
+  // ===== Dispersão Valor × Tempo (+ r)
+  const pts = [];
+  const xs = [], ys = [];
+  data.forEach(r=>{
+    if(r._de && r._ds){
+      const dias = daysBetween(r._de, r._ds);
+      const val  = parseMoneyCell(r["Total CP"]);
+      xs.push(dias); ys.push(val);
+      pts.push({x: dias, y: val, label: r["Numero do Orçamento"]||'—'});
+    }
+  });
+  const rpear = pearson(xs, ys);
+
+  chartsAnalises.scatter = new Chart(document.getElementById('chartValorTempo'), {
+    type: 'scatter',
+    data: { datasets: [{ label:'OS', data: pts, parsing:false, pointRadius:3 }] },
+    options: {
+      plugins: {
+        legend: { labels: { color: text } },
+        title: { display:true, text: `Correlação r = ${rpear.toFixed(2)}`, color:text },
+        tooltip: { callbacks:{ label:(c)=> {
+          const p = c.raw; 
+          return `OS ${p.label} — Dias: ${p.x.toFixed(1)} | Valor: ${fmtMoney(p.y)}`;
+        }}}
+      },
+      scales: {
+        x: { title:{ display:true, text:'Dias totais', color:text }, ticks:{ color:muted }, grid:{ color:muted+'30' } },
+        y: { title:{ display:true, text:'R$', color:text }, ticks:{ color:muted, callback:(v)=>'R$ '+Number(v).toLocaleString('pt-BR') }, grid:{ color:muted+'30' } }
+      }
+    }
+  });
+
+  // ===== Aging (WIP) — OS abertas por faixas
+  const now = new Date();
+  const buckets = { '0–3':0, '4–7':0, '8–14':0, '15–30':0, '30+':0 };
+
+  data.forEach(r=>{
+    if(!r._ds && r._de){
+      const age = Math.max(0, Math.floor(daysBetween(r._de, now)));
+      if(age<=3) buckets['0–3']++;
+      else if(age<=7) buckets['4–7']++;
+      else if(age<=14) buckets['8–14']++;
+      else if(age<=30) buckets['15–30']++;
+      else buckets['30+']++;
+    }
+  });
+
+  chartsAnalises.aging = new Chart(document.getElementById('chartAgingWIP'), {
+    type: 'bar',
+    data: { labels: Object.keys(buckets), datasets: [{ label:'Qtd OS abertas', data: Object.values(buckets) }] },
+    options: {
+      plugins: { legend:{labels:{color:text}} },
+      scales: { x:{ ticks:{color:muted}, grid:{color:muted+'30'} }, y:{ ticks:{color:muted}, grid:{color:muted+'30'} } }
+    }
+  });
+
+  // ===== Pareto Itens/Serviços
+  const mapItem = new Map();
+  const pushItem = (desc, total)=>{
+    const key = (desc||'—').trim().toUpperCase();
+    const cur = mapItem.get(key) || { total:0, freq:0, label: (desc||'—').trim() };
+    cur.total += (total||0);
+    cur.freq  += 1;
+    mapItem.set(key, cur);
+  };
+
+  data.forEach(r=>{
+    (r.servicos||[]).forEach(s=> pushItem(s.descricao, s.total));
+    (r.pecas||[]).forEach(p=> pushItem(p.descricao, p.total));
+  });
+
+  let arr = Array.from(mapItem.values()).sort((a,b)=>b.total-a.total).slice(0,15);
+  const labelsPareto = arr.map(x=>x.label);
+  const valsPareto   = arr.map(x=>x.total);
+  const freqsPareto  = arr.map(x=>x.freq);
+  const totalPareto  = valsPareto.reduce((a,b)=>a+b,0);
+  const cumPerc      = [];
+  arr.reduce((acc,cur,i)=>{
+    const nv = acc + cur.total;
+    cumPerc[i] = totalPareto? (nv/totalPareto)*100 : 0;
+    return nv;
+  }, 0);
+
+  chartsAnalises.pareto = new Chart(document.getElementById('chartParetoItens'), {
+    type: 'bar',
+    data: {
+      labels: labelsPareto,
+      datasets: [
+        { label:'Receita (R$)', data: valsPareto, yAxisID:'y' },
+        { label:'Acumulado (%)', data: cumPerc, type:'line', yAxisID:'y1', tension:.25, fill:false }
+      ]
+    },
+    options: {
+      plugins: {
+        legend:{ labels:{ color:text } },
+        tooltip:{ callbacks:{ 
+          label:(ctx)=>{
+            if(ctx.dataset.yAxisID==='y'){
+              const i = ctx.dataIndex;
+              return `Receita: R$ ${Number(ctx.parsed.y||0).toLocaleString('pt-BR')} | Ocorrências: ${freqsPareto[i]}`;
+            } else {
+              return `Acumulado: ${ctx.parsed.y.toFixed(1)}%`;
+            }
+          } 
+        }}
+      },
+      scales: {
+        x:{ ticks:{ color:muted }, grid:{ color:muted+'30' } },
+        y:{ position:'left', ticks:{ color:muted, callback:(v)=>'R$ '+Number(v).toLocaleString('pt-BR') }, grid:{ color:muted+'30' } },
+        y1:{ position:'right', min:0, max:100, ticks:{ color:muted, callback:(v)=>v+'%' }, grid:{ drawOnChartArea:false } }
+      }
     }
   });
 }
