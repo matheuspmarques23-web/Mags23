@@ -249,6 +249,14 @@
         <div class="label">Mês × Controle (barras empilhadas)</div>
         <canvas id="chartMesControle"></canvas>
       </div>
+      <div class="card">
+        <div class="label">Conversão por Mês</div>
+        <canvas id="chartConversao"></canvas>
+      </div>
+      <div class="card">
+        <div class="label">Ticket Médio Mensal</div>
+        <canvas id="chartTicketMedio"></canvas>
+      </div>
     </div>
   </section>
 
@@ -1212,8 +1220,42 @@ function updateAnalises(){
     options:{ plugins:{ legend:{labels:{color:text}}}, scales:{ x:{ticks:{color:muted}}, y:{ticks:{color:muted}} } }
   });
 
-  // Mês × Controle (empilhado)
+  // Mês × Controle (empilhado) e métricas mensais
   const meses = [...new Set(data.map(ymKey).filter(Boolean))].sort();
+
+  // Conversão por Mês
+  const convVals = meses.map(m=>{
+    const recs = data.filter(r=>ymKey(r)===m);
+    const total = recs.length;
+    const cancel = recs.filter(r=>classifyRec(r).ctrl==='Cancelado').length;
+    const fatur = recs.filter(r=>classifyRec(r).ctrl==='Faturado').length;
+    const nc = total - cancel;
+    return nc>0 ? (fatur/nc)*100 : 0;
+  });
+  chartsAnalises.conversao = new Chart(document.getElementById('chartConversao'),{
+    type:'bar',
+    data:{ labels: meses.map(ym => { const [y,m]=ym.split('-'); return new Date(y,m-1).toLocaleDateString('pt-BR',{month:'short'}); }), datasets:[{ label:'% Conversão', data: convVals }] },
+    options:{
+      plugins:{ legend:{labels:{color:text}}, tooltip:{callbacks:{ label:(c)=>c.parsed.y.toFixed(1)+'%'}} },
+      scales:{ x:{ticks:{color:muted}}, y:{ticks:{color:muted, callback:(v)=>v+'%'} } }
+    }
+  });
+
+  // Ticket Médio Mensal
+  const ticketVals = meses.map(m=>{
+    const recs = data.filter(r=>ymKey(r)===m);
+    const total = recs.reduce((a,b)=>a+parseMoneyCell(b["Total CP"]),0);
+    return recs.length ? total/recs.length : 0;
+  });
+  chartsAnalises.ticket = new Chart(document.getElementById('chartTicketMedio'),{
+    type:'line',
+    data:{ labels: meses.map(ym => { const [y,m]=ym.split('-'); return new Date(y,m-1).toLocaleDateString('pt-BR',{month:'short'}); }), datasets:[{ label:'Ticket Médio', data: ticketVals, fill:false, tension:.25 }] },
+    options:{
+      plugins:{ legend:{labels:{color:text}}, tooltip:{callbacks:{ label:(c)=>fmtMoney(c.parsed.y)}} },
+      scales:{ x:{ticks:{color:muted}}, y:{ticks:{color:muted, callback:(v)=>'R$ '+Number(v).toLocaleString('pt-BR')} } }
+    }
+  });
+
   const controles = ["Em análise","Autorizado","Faturado","Cancelado"];
   const datasetStack = controles.map(cn=>{
     return {
