@@ -68,6 +68,16 @@
   .modal-body{flex:1;overflow:auto;padding:8px 0}
   .icon-btn{background:none;border:none;color:var(--text);font-size:20px;cursor:pointer}
   .modal-card button{margin-top:0}
+  /* === SORT */
+  th[data-key]{cursor:pointer;user-select:none;position:relative;padding-right:16px}
+  th.sort-asc::after{content:'\25B2';position:absolute;right:4px}
+  th.sort-desc::after{content:'\25BC';position:absolute;right:4px}
+  /* === CHARTS PRO */
+  .chart-tooltip{position:absolute;background:var(--card);border:1px solid var(--soft);border-radius:6px;padding:4px 6px;font-size:11px;pointer-events:none;z-index:40;white-space:nowrap}
+  .chart-tooltip.hidden{display:none}
+  canvas{touch-action:pan-y}
+  /* === CHART MODAL */
+  #chartModal .modal-card{max-width:90vw;max-height:70vh}
 </style>
 </head>
 <body>
@@ -268,6 +278,23 @@
       </div>
     </div>
   </div>
+  <!-- === CHART MODAL -->
+  <div id="chartModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="chartModalTitle">
+    <div class="modal-backdrop" data-close></div>
+    <div class="modal-card modal-wide">
+      <div class="modal-header">
+        <h3 id="chartModalTitle">Visualização do Gráfico</h3>
+        <div class="modal-actions">
+          <button id="btnChartDownload">Baixar PNG</button>
+          <button id="btnChartCopyCSV">Copiar dados (CSV)</button>
+          <button id="chartModalClose" aria-label="Fechar">×</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <canvas id="chartModalCanvas"></canvas>
+      </div>
+    </div>
+  </div>
 
 <script>
 // ====== Helpers ======
@@ -275,7 +302,7 @@ const DOC_MAP = { CC:"Cartão de Crédito", CD:"Cartão de Débito", PIX:"Pix", 
 const SIT_MAP = { L:"Liquidado", A:"Aberto" };
 
 const fmtBRL = (n)=> isFinite(n) ? n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}) : '—';
-const fmtCurrencyBR = fmtBRL; // === CHARTS
+const fmtCurrencyBR = fmtBRL; // === CHARTS PRO
 const fmtPercent = (n)=> isFinite(n)? n.toFixed(2)+'%':'—';
 const fmtInt = (n)=> isFinite(n) ? n.toLocaleString('pt-BR') : '—';
 const pad2 = (x)=> String(x).padStart(2,'0');
@@ -284,41 +311,27 @@ const fmtDateBR = (d)=> d? `${pad2(d.getDate())}/${pad2(d.getMonth()+1)}/${d.get
 
 function parseDateFlexible(s){
   if(!s) return null;
-  const t = String(s).trim();
-  if(!t || t==='-' ) return null;
-  // ISO
-  if(/^[0-9]{4}-[0-9]{2}-[0-9]{2}/.test(t)){
-    const d = new Date(t);
-    return isNaN(d)? null : d;
-  }
-  // BR dd/mm/aaaa
-  const m = t.match(/^([0-9]{1,2})\D([0-9]{1,2})\D([0-9]{2,4})/);
-  if(m){
-    const dd = +m[1], mm = +m[2], yy = +m[3];
-    const yyyy = yy<100 ? (yy+2000) : yy;
-    const d = new Date(yyyy, mm-1, dd);
-    return isNaN(d)? null : d;
-  }
-  const d = new Date(t);
-  return isNaN(d)? null : d;
+  const t=String(s).trim();
+  if(!t||t==='-') return null;
+  if(/^[0-9]{4}-[0-9]{2}-[0-9]{2}/.test(t)){ const d=new Date(t); return isNaN(d)?null:d; }
+  const m=t.match(/^([0-9]{1,2})\D([0-9]{1,2})\D([0-9]{2,4})/);
+  if(m){ const dd=+m[1], mm=+m[2], yy=+m[3]; const yyyy=yy<100?(yy+2000):yy; const d=new Date(yyyy,mm-1,dd); return isNaN(d)?null:d; }
+  const d=new Date(t); return isNaN(d)?null:d;
 }
 
 function parseNumBR(s){
   if(s==null) return null;
-  let t = String(s).trim();
-  if(!t || t==='-' ) return null;
-  t = t.replace(/[^0-9,.-]/g,''); // remove símbolos
-  // se tem vírgula e ponto, assume BR: 1.234,56
-  if(/,/.test(t)){
-    t = t.replace(/\./g,'').replace(/,/g,'.');
-  }
-  const v = parseFloat(t);
+  let t=String(s).trim();
+  if(!t||t==='-') return null;
+  t=t.replace(/[^0-9,.-]/g,'');
+  if(/,/.test(t)){ t=t.replace(/\./g,'').replace(/,/g,'.'); }
+  const v=parseFloat(t);
   return isNaN(v)? null : v;
 }
 
 function detectDelimiter(sample){
-  const seg = sample.split(/\r?\n/).slice(0,5).join('\n');
-  const sc = (seg.match(/;/g)||[]).length, cc=(seg.match(/,/g)||[]).length;
+  const seg=sample.split(/\r?\n/).slice(0,5).join('\n');
+  const sc=(seg.match(/;/g)||[]).length, cc=(seg.match(/,/g)||[]).length;
   return sc>cc? ';' : ',';
 }
 
@@ -329,13 +342,12 @@ function parseCSV(text, delimiter){
   const pushR=()=>{rows.push(row); row=[]};
   while(i<text.length){ const ch=text[i];
     if(inQ){
-      if(ch==='"'){
-        if(text[i+1]==='"'){ field+='"'; i++; } else { inQ=false; }
-      } else field+=ch;
+      if(ch==='"'){ if(text[i+1]==='"'){ field+='"'; i++; } else { inQ=false; } }
+      else field+=ch;
     } else {
       if(ch==='"') inQ=true;
       else if(ch===delimiter) pushF();
-      else if(ch==='\r'){} 
+      else if(ch==='\r'){}
       else if(ch==='\n'){ pushF(); pushR(); }
       else field+=ch;
     }
@@ -351,6 +363,34 @@ function parseCSV(text, delimiter){
 
 const norm = (s)=> String(s||"").normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim().toLowerCase();
 
+// === SORT
+function parseForSort(val, type){
+  if(val==null) return 0;
+  switch(type){
+    case 'number': return Number(val) || 0;
+    case 'currency': return parseNumBR(val) || 0;
+    case 'percent': return Number(String(val).replace('%','').replace(',','.')) || 0;
+    case 'date': return parseDateFlexible(val)?.getTime() || -Infinity;
+    default:
+      return String(val).normalize('NFD').replace(/\p{Diacritic}/gu,'').toLowerCase().trim();
+  }
+}
+function sortRows(rows, key, dir, type){
+  const m=dir==='asc'?1:-1;
+  return rows.slice().sort((a,b)=>{
+    const av=a[key], bv=b[key];
+    const emptyA=av==null||av===''||av==='—';
+    const emptyB=bv==null||bv===''||bv==='—';
+    if(emptyA && emptyB) return 0;
+    if(emptyA) return 1;
+    if(emptyB) return -1;
+    const A=parseForSort(av,type);
+    const B=parseForSort(bv,type);
+    if(A===B) return 0;
+    return A>B?m:-m;
+  });
+}
+
 function headerIndex(headers, label){
   const tgt = norm(label).replace(/[\.-_/]/g,'');
   for(let i=0;i<headers.length;i++){
@@ -364,93 +404,80 @@ function headerIndex(headers, label){
   return -1;
 }
 
-function makeTable(headers, rows){
+function detectType(h){
+  const l=h.toLowerCase();
+  if(l.includes('valor')||l.includes('saldo')) return 'currency';
+  if(l.includes('%')||l.includes('lucro')) return 'percent';
+  if(l.includes('venc')||l.includes('emiss')||l.includes('pag')||l.includes('mês')||l.includes('mes')||l.includes('data')) return 'date';
+  if(l.includes('qtde')||l.includes('dias')||l.includes('ano')||l.includes('num')) return 'number';
+  return 'string';
+}
+
+function makeTable(headers, rows, opts={}){
   const container = document.createElement('div');
-  container.style.maxHeight = '420px';
-  container.style.overflow = 'auto';
-  let html = '<table><thead><tr>';
-  headers.forEach((h,idx)=>{
-    html += `<th data-idx="${idx}" class="sortable">${h}</th>`;
+  container.style.maxHeight='420px';
+  container.style.overflow='auto';
+  let html='<table><thead><tr>';
+  headers.forEach((h)=>{
+    const type=detectType(h);
+    const sortKey=opts.tableId? state.sort[TABLE_SORT_KEYS[opts.tableId]]:null;
+    const active=sortKey && sortKey.key===h;
+    const dir=active? sortKey.dir:null;
+    const aria=active?(dir==='asc'?'ascending':'descending'):'none';
+    const cls=active?(dir==='asc'?'sort-asc':'sort-desc'):'';
+    html+=`<th${opts.sortable?` data-key="${h}" data-type="${type}"`:''} class="${cls}" aria-sort="${aria}">${h}</th>`;
   });
-  html += '</tr></thead><tbody>';
-  rows.forEach((r,idx)=>{
-    html += `<tr data-row-index="${idx}">` + headers.map(h=>`<td>${r[h]??''}</td>`).join('') + '</tr>';
-  });
-  html += '</tbody></table>';
-  container.innerHTML = html;
+  html+='</tr></thead><tbody>';
+  rows.forEach((r,idx)=>{ html+=`<tr data-row-index="${idx}">`+headers.map(h=>`<td>${r[h]??''}</td>`).join('')+"</tr>"; });
+  html+='</tbody></table>';
+  container.innerHTML=html;
+  if(opts.sortable){
+    const thead=container.querySelector('thead');
+    thead.addEventListener('click',(e)=>{
+      const th=e.target.closest('th[data-key]');
+      if(!th) return;
+      const key=th.dataset.key; const type=th.dataset.type||'string';
+      toggleSortForTable(opts.tableId, key, type);
+    });
+  }
   return container;
 }
 
 function groupBy(arr, keyFn){
-  const m = new Map();
-  for(const it of arr){ const k = keyFn(it); m.set(k, (m.get(k)||[]).concat([it])); }
+  const m=new Map();
+  for(const it of arr){ const k=keyFn(it); m.set(k,(m.get(k)||[]).concat([it])); }
   return m;
 }
 
-// === CHARTS
 const MiniChart = (()=>{
-  function niceScale(max){
-    const pow = Math.pow(10, Math.floor(Math.log10(Math.max(1,max))));
-    const step = pow;
-    const ticks=[];
-    for(let v=0; v<=max; v+=step) ticks.push(v);
-    if(ticks[ticks.length-1]<max) ticks.push(max);
-    return {max:ticks[ticks.length-1], ticks};
+  function niceScale(maxAbs){
+    if(maxAbs<=0) return {max:0,ticks:[0]};
+    const exp=Math.floor(Math.log10(maxAbs));
+    const base=Math.pow(10,exp);
+    const frac=maxAbs/base; let step=base;
+    if(frac>5) step=5*base; else if(frac>2) step=2*base;
+    const max=Math.ceil(maxAbs/step)*step;
+    const ticks=[]; for(let v=0; v<=max; v+=step) ticks.push(v);
+    return {max,ticks};
   }
-  function drawAxes(ctx,w,h,padding,ticks,labels,fmtY){
-    ctx.strokeStyle='#444';
-    ctx.beginPath(); ctx.moveTo(padding,padding); ctx.lineTo(padding,h-padding); ctx.lineTo(w-padding,h-padding); ctx.stroke();
-    const innerH=h-padding*2; const innerW=w-padding*2; const stepX=innerW/labels.length;
-    ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='var(--muted)';
-    labels.forEach((lab,i)=>{ const x=padding+i*stepX+stepX/2; ctx.fillText(lab,x,h-padding+4); });
-    ctx.textAlign='right'; ctx.textBaseline='middle';
-    ticks.forEach(t=>{ const y=h-padding-(t/ticks[ticks.length-1])*innerH; ctx.fillText(fmtY?fmtY(t):t,padding-4,y); ctx.strokeStyle='rgba(255,255,255,0.1)'; ctx.beginPath(); ctx.moveTo(padding,y); ctx.lineTo(w-padding,y); ctx.stroke(); });
+  function mount(canvas,cfg,opt={}){
+    const ctx=canvas.getContext('2d');
+    const tooltip=document.createElement('div'); tooltip.className='chart-tooltip hidden';
+    canvas.parentNode.style.position='relative'; canvas.parentNode.appendChild(tooltip);
+    let state={cfg:null,hidden:new Set(),legend:[],start:0};
+    function size(){ const dpr=(window.devicePixelRatio||1)*(opt.scale||1); const w=canvas.clientWidth,h=canvas.clientHeight; canvas.width=w*dpr; canvas.height=h*dpr; ctx.setTransform(dpr,0,0,dpr,0,0); }
+    const fmt=(v,u)=>u==='money'?fmtCurrencyBR(v):u==='percent'?fmtPercent(v):v;
+    function draw(ts){ if(!state.cfg){ctx.clearRect(0,0,canvas.width,canvas.height);return;} size(); const {labels,datasets,type}=state.cfg; const dpr=window.devicePixelRatio||1; const w=canvas.width/dpr,h=canvas.height/dpr; ctx.clearRect(0,0,w,h); if(!labels.length){ctx.fillStyle='var(--muted)';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('Sem dados no período',w/2,h/2);return;} const vis=datasets.filter(d=>!state.hidden.has(d.name)); if(!vis.length){ctx.fillStyle='var(--muted)';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('Sem dados no período',w/2,h/2);return;} const pad=40,innerW=w-pad*2,innerH=h-pad*2; const scale=niceScale(Math.max(...vis.flatMap(s=>s.data.map(v=>Math.abs(v))),0)); ctx.strokeStyle='var(--text)'; ctx.beginPath(); ctx.moveTo(pad,pad); ctx.lineTo(pad,h-pad); ctx.lineTo(w-pad,h-pad); ctx.stroke(); ctx.textAlign='right'; ctx.textBaseline='middle'; ctx.fillStyle='var(--muted)'; scale.ticks.forEach(t=>{const y=h-pad-(t/scale.max)*innerH; ctx.strokeStyle='rgba(255,255,255,0.1)'; ctx.beginPath(); ctx.moveTo(pad,y); ctx.lineTo(w-pad,y); ctx.stroke(); ctx.fillText(fmt(t,vis[0].unit),pad-4,y);}); ctx.textAlign='center'; ctx.textBaseline='top'; const stepX=innerW/labels.length; const rot=labels.length>8; labels.forEach((lab,i)=>{const x=pad+i*stepX+stepX/2,y=h-pad+4; if(rot){ctx.save();ctx.translate(x,y);ctx.rotate(-Math.PI/6);ctx.fillText(lab,0,0);ctx.restore();} else ctx.fillText(lab,x,y);}); let prog=1; if(state.start){const t=Math.min(1,(ts-state.start)/300); prog=t; if(t<1) requestAnimationFrame(draw); else state.start=0;} const ptsDs=[]; if(type==='bar'){const bw=stepX/vis.length*0.8,off=stepX/vis.length; vis.forEach((ds,si)=>{ctx.fillStyle=ds.color; const pts=[]; ds.data.forEach((v,i)=>{const val=v*prog; const x=pad+i*stepX+off*si+(off-bw)/2; const bh=scale.max?(val/scale.max)*innerH:0; const y=h-pad-bh; ctx.fillRect(x,y,bw,bh); pts.push({x:x+bw/2,y,v});}); ptsDs.push({ds,pts});});} else {vis.forEach(ds=>{ctx.strokeStyle=ds.color; ctx.beginPath(); const pts=[]; ds.data.forEach((v,i)=>{const val=v*prog; const x=pad+i*stepX+stepX/2; const y=h-pad-(val/scale.max)*innerH; if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); pts.push({x,y,v});}); ctx.stroke(); ctx.fillStyle=ds.color; pts.forEach(p=>{ctx.beginPath();ctx.arc(p.x,p.y,3,0,Math.PI*2);ctx.fill();}); ptsDs.push({ds,pts});});}
+    ctx.fillStyle='var(--text)'; ctx.font='10px sans-serif'; ctx.textBaseline='bottom'; ctx.textAlign='center'; ptsDs.forEach(({ds,pts})=>{const showAll=pts.length<=12; let sel=pts; if(!showAll){const maxP=pts.reduce((m,p)=>p.v>m.v?p:m,pts[0]); const minP=pts.reduce((m,p)=>p.v<m.v?p:m,pts[0]); sel=[maxP,minP,pts[pts.length-1]];} sel.forEach(p=>ctx.fillText(fmt(p.v,ds.unit),p.x,p.y-4));}); ctx.font='12px sans-serif'; ctx.textBaseline='middle'; let lx=10,ly=10; state.legend=[]; datasets.forEach(ds=>{const wt=ctx.measureText(ds.name).width; state.legend.push({x:lx,y:ly,w:wt+24,name:ds.name}); ctx.fillStyle=ds.color; ctx.fillRect(lx,ly-6,12,12); ctx.fillStyle=state.hidden.has(ds.name)?'var(--muted)':'var(--text)'; ctx.fillText(ds.name,lx+16,ly); lx+=wt+30;}); }
+    canvas.addEventListener('click',e=>{const r=canvas.getBoundingClientRect(); const x=e.clientX-r.left,y=e.clientY-r.top; const item=state.legend.find(l=>x>=l.x && x<=l.x+l.w && y>=l.y-10 && y<=l.y+10); if(item){ if(state.hidden.has(item.name)) state.hidden.delete(item.name); else state.hidden.add(item.name); state.start=performance.now(); draw(state.start); e.stopPropagation(); }});
+    canvas.addEventListener('mousemove',e=>{const r=canvas.getBoundingClientRect(); const x=e.clientX-r.left,y=e.clientY-r.top; const {labels,datasets}=state.cfg||{}; if(!labels){tooltip.classList.add('hidden');return;} const pad=40; const step=(canvas.clientWidth-pad*2)/labels.length; const idx=Math.floor((x-pad)/step); if(idx<0||idx>=labels.length){tooltip.classList.add('hidden');return;} const lines=datasets.filter(d=>!state.hidden.has(d.name)).map(d=>`${d.name}: ${fmt(d.data[idx],d.unit)}`); if(!lines.length){tooltip.classList.add('hidden');return;} tooltip.innerHTML=`<b>${labels[idx]}</b><br>`+lines.join('<br>'); tooltip.style.left=`${x+10}px`; tooltip.style.top=`${y+10}px`; tooltip.classList.remove('hidden');});
+    canvas.addEventListener('mouseleave',()=>tooltip.classList.add('hidden'));
+    window.addEventListener('resize',()=>draw());
+    function setCfg(c){state.cfg=c; state.start=performance.now(); draw(state.start);} setCfg(cfg||{labels:[],datasets:[],type:'bar'});
+    return {update:setCfg,getConfig:()=>state.cfg};
   }
-  function drawLegend(ctx,datasets,legend,hidden){
-    let x=10,y=10; legend.length=0; ctx.font='12px sans-serif'; ctx.textBaseline='middle';
-    datasets.forEach(ds=>{ const w=ctx.measureText(ds.label).width+24; legend.push({x,y,w,label:ds.label,color:ds.color}); ctx.fillStyle=ds.color; ctx.fillRect(x,y-6,12,12); ctx.fillStyle=hidden.has(ds.label)?'var(--muted)':'var(--text)'; ctx.fillText(ds.label,x+18,y); x+=w+10; });
-  }
-  function drawDataLabels(ctx,pts,fmt){
-    ctx.fillStyle='var(--text)'; ctx.font='10px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='bottom';
-    pts.forEach(p=> ctx.fillText(fmt?fmt(p.v):p.v,p.x,p.y-4));
-  }
-  function create(canvas){
-    const ctx = canvas.getContext('2d');
-    const legend=[]; const hidden=new Set(); let cfg=null;
-    function draw(){
-      const w=canvas.clientWidth, h=canvas.clientHeight; const dpr=window.devicePixelRatio||1; canvas.width=w*dpr; canvas.height=h*dpr; ctx.setTransform(dpr,0,0,dpr,0,0);
-      ctx.clearRect(0,0,w,h);
-      if(!cfg || !cfg.labels.length){ ctx.fillStyle='var(--muted)'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('Sem dados no período', w/2,h/2); return; }
-      const datasets = cfg.series.filter(s=>!hidden.has(s.label));
-      if(!datasets.length){ ctx.fillStyle='var(--muted)'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('Sem dados no período', w/2,h/2); return; }
-      const padding=30; const innerW=w-padding*2; const innerH=h-padding*2;
-      const max=Math.max(...datasets.flatMap(s=>s.data.map(v=>Math.abs(v))),0);
-      const scale=niceScale(max);
-      drawAxes(ctx,w,h,padding,scale.ticks,cfg.labels, cfg.fmtY);
-      const step=innerW/cfg.labels.length;
-      if(cfg.type==='bar'){
-        datasets.forEach((s,si)=>{
-          const bw=step/datasets.length*0.8; const off=step/datasets.length; ctx.fillStyle=s.color||'#f26722'; const pts=[];
-          s.data.forEach((v,i)=>{ const x=padding+i*step+off*si+(off-bw)/2; const bh=scale.max? (v/scale.max)*innerH:0; const y=h-padding-bh; ctx.fillRect(x,y,bw,bh); pts.push({x:x+bw/2,y:y,v}); });
-          drawDataLabels(ctx,pts,s.fmt||cfg.fmtY);
-        });
-      } else if(cfg.type==='line'){
-        datasets.forEach(s=>{
-          ctx.strokeStyle=s.color||'#f26722'; ctx.beginPath(); const pts=[];
-          s.data.forEach((v,i)=>{ const x=padding+i*step+step/2; const y=h-padding-(v/scale.max)*innerH; if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); pts.push({x,y,v}); });
-          ctx.stroke(); ctx.fillStyle=s.color||'#f26722'; pts.forEach(p=>{ ctx.beginPath(); ctx.arc(p.x,p.y,3,0,Math.PI*2); ctx.fill(); });
-          drawDataLabels(ctx,pts,s.fmt||cfg.fmtY);
-        });
-      }
-      drawLegend(ctx,datasets,legend,hidden);
-    }
-    window.addEventListener('resize', draw);
-    canvas.addEventListener('click', (e)=>{ const rect=canvas.getBoundingClientRect(); const x=e.clientX-rect.left; const y=e.clientY-rect.top; const item=legend.find(l=>x>=l.x && x<=l.x+l.w && y>=l.y-10 && y<=l.y+10); if(item){ if(hidden.has(item.label)) hidden.delete(item.label); else hidden.add(item.label); draw(); }});
-    return { set(c){ cfg=c; draw(); } };
-  }
-  return {create};
+  return {mount,niceScale};
 })();
-
 // === Séries mensais ===
 function computeMonthlySeries(rows, baseKey){
   const map = new Map();
@@ -519,10 +546,10 @@ function renderMensalView(){
   kRecM.textContent = fmtBRL(totRecM);
   kLucM.textContent = lucM!=null? lucM.toFixed(2)+'%' : '—';
   const recM = makeReceberTable(rowsMes);
-  renderTable('tblMensalRec', recM.headers, recM.rows, {onRowClick:(r,i)=> openLineModal(recM.orig[i])});
+  renderTable('tblMensalRec', recM.headers, recM.rows, {sortable:true,onRowClick:(r,i)=> openLineModal(recM.orig[i])});
   document.getElementById('recMensalStats').textContent=`${recM.rows.length||0} linhas`;
   const pagM = makePagarTable(rowsMes);
-  renderTable('tblMensalPag', pagM.headers, pagM.rows, {onRowClick:(r,i)=> openLineModal(pagM.orig[i])});
+  renderTable('tblMensalPag', pagM.headers, pagM.rows, {sortable:true,onRowClick:(r,i)=> openLineModal(pagM.orig[i])});
   document.getElementById('pagMensalStats').textContent=`${pagM.rows.length||0} linhas`;
 }
 
@@ -615,7 +642,67 @@ function computeDiagnostics(rows){
 let RAW={headers:[], data:[]};
 let REG=[]; // registros normalizados
 let LAST_DET=null, LAST_CF=null;
-const state = {mensalKey:'', rows:[]}; // === MENSAL
+const state = {mensalKey:'', rows:[], sort:{
+  recebereTable:{key:null,dir:'asc'},
+  pagarTable:{key:null,dir:'asc'},
+  totalTable:{key:null,dir:'asc'},
+  mensalRecTable:{key:null,dir:'asc'},
+  mensalPagTable:{key:null,dir:'asc'}
+}}; // === MENSAL & SORT
+const TABLE_SORT_KEYS={
+  tblReceber:'recebereTable',
+  tblPagar:'pagarTable',
+  tblMeses:'totalTable',
+  tblMensalRec:'mensalRecTable',
+  tblMensalPag:'mensalPagTable'
+};
+const tableData=new Map();
+
+function toggleSortForTable(tableId, key, type){
+  const sk=TABLE_SORT_KEYS[tableId];
+  if(!sk) return;
+  const st=state.sort[sk];
+  if(st.key===key){ st.dir = st.dir==='asc'?'desc':'asc'; }
+  else { st.key=key; st.dir='asc'; }
+  st.type=type;
+  refreshTableById(tableId);
+}
+
+function refreshTableById(id){
+  const dat=tableData.get(id);
+  if(dat) renderTable(id, dat.headers, dat.rows, dat.opts);
+}
+
+// === CHART MODAL
+const chartRegistry = new Map();
+function storeChartInstance(id, inst){ chartRegistry.set(id, inst); }
+
+function toCSV(labels, datasets){
+  const header=['Label',...datasets.map(d=>d.name)].join(';');
+  const rows=labels.map((lab,i)=>[lab,...datasets.map(d=>d.data[i])].join(';'));
+  return [header,...rows].join('\n');
+}
+
+function openChartModal(fromCanvasId){
+  const inst=chartRegistry.get(fromCanvasId);
+  if(!inst) return;
+  const cfg=inst.getConfig();
+  const canvas=document.getElementById('chartModalCanvas');
+  MiniChart.mount(canvas, cfg, {scale:1.5});
+  document.getElementById('chartModal').classList.remove('hidden');
+  document.getElementById('btnChartDownload').onclick=()=>{
+    const url=canvas.toDataURL('image/png');
+    const a=document.createElement('a'); a.href=url; a.download='grafico.png'; a.click();
+  };
+  document.getElementById('btnChartCopyCSV').onclick=()=>{
+    const csv=toCSV(cfg.labels, cfg.datasets);
+    navigator.clipboard?.writeText(csv);
+  };
+}
+function closeChartModal(){ document.getElementById('chartModal').classList.add('hidden'); }
+document.getElementById('chartModalClose').onclick=closeChartModal;
+document.querySelector('#chartModal .modal-backdrop').onclick=closeChartModal;
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeChartModal(); });
 
 // ====== Normalização ======
 function toRecord(row, headers){
@@ -683,16 +770,24 @@ function toRecord(row, headers){
 
 // ====== Render Utils ======
 function renderTable(containerId, headers, rows, opts={}){
+  tableData.set(containerId,{headers, rows, opts});
   const c = document.getElementById(containerId);
   c.innerHTML = '';
-  const table = makeTable(headers, rows);
+  let viewRows = rows;
+  if(opts.sortable){
+    const sk=TABLE_SORT_KEYS[containerId];
+    const st=state.sort[sk];
+    if(st && st.key){ viewRows = sortRows(viewRows, st.key, st.dir, st.type||detectType(st.key)); }
+  }
+  const table = makeTable(headers, viewRows, {sortable:opts.sortable, tableId:containerId});
   c.appendChild(table);
   if(opts.onRowClick){
     c.onclick = (e)=>{
       const tr = e.target.closest('tr[data-row-index]');
       if(!tr) return;
       const idx = +tr.dataset.rowIndex;
-      opts.onRowClick(rows[idx], idx, tr);
+      const origIdx = rows.indexOf(viewRows[idx]);
+      opts.onRowClick(viewRows[idx], origIdx, tr);
     };
     c.querySelectorAll('tbody tr').forEach(tr=> tr.style.cursor='pointer');
   }
@@ -870,10 +965,6 @@ const kLucM = document.getElementById('kLucroM');
 const mensalMesSelect = document.getElementById('mensalMesSelect');
 const saldoIni = document.getElementById('saldoInicial');
 
-const chResMensal = MiniChart.create(document.getElementById('chResMensal'));
-const chPVSRMensal = MiniChart.create(document.getElementById('chPVSRMensal'));
-const chResAcum = MiniChart.create(document.getElementById('chResAcum'));
-const chLucroMensal = MiniChart.create(document.getElementById('chLucroMensal'));
 
 function setStatus(msg, ok){
   elStatus.textContent = msg;
@@ -906,21 +997,25 @@ function refresh(){
   kLuc.textContent = lucr!=null? lucr.toFixed(2)+'%' : '—';
 
   const fmtMes = m=>`${m.slice(5,7)}/${m.slice(2,4)}`;
-  chResMensal.set({type:'bar', labels:resSeries.labels.map(fmtMes), series:[{label:'Resultado', data:resSeries.values, color:'#f26722', fmt:fmtCurrencyBR}], fmtY:fmtCurrencyBR});
-  chPVSRMensal.set({type:'bar', labels:prSeries.labels.map(fmtMes), series:[{label:'Receber', data:prSeries.rec, color:'#98ecb2', fmt:fmtCurrencyBR},{label:'Pagar', data:prSeries.pag, color:'#ff9b9b', fmt:fmtCurrencyBR}], fmtY:fmtCurrencyBR});
-  chResAcum.set({type:'line', labels:acumSeries.labels.map(fmtMes), series:[{label:'Acumulado', data:acumSeries.values, color:'#f26722', fmt:fmtCurrencyBR}], fmtY:fmtCurrencyBR});
-  chLucroMensal.set({type:'line', labels:lucroSeries.labels.map(fmtMes), series:[{label:'Lucratividade', data:lucroSeries.values, color:'#98ecb2', fmt:fmtPercent}], fmtY:fmtPercent});
+  const cfgRes={type:'bar',labels:resSeries.labels.map(fmtMes),datasets:[{name:'Resultado',data:resSeries.values,unit:'money',color:'#f26722'}]};
+  const cfgPVSR={type:'bar',labels:prSeries.labels.map(fmtMes),datasets:[{name:'Receber',data:prSeries.rec,unit:'money',color:'#98ecb2'},{name:'Pagar',data:prSeries.pag,unit:'money',color:'#ff9b9b'}]};
+  const cfgAcum={type:'line',labels:acumSeries.labels.map(fmtMes),datasets:[{name:'Acumulado',data:acumSeries.values,unit:'money',color:'#f26722'}]};
+  const cfgLuc={type:'line',labels:lucroSeries.labels.map(fmtMes),datasets:[{name:'Lucratividade',data:lucroSeries.values,unit:'percent',color:'#98ecb2'}]};
+  storeChartInstance('chResMensal', MiniChart.mount(document.getElementById('chResMensal'), cfgRes));
+  storeChartInstance('chPVSRMensal', MiniChart.mount(document.getElementById('chPVSRMensal'), cfgPVSR));
+  storeChartInstance('chResAcum', MiniChart.mount(document.getElementById('chResAcum'), cfgAcum));
+  storeChartInstance('chLucroMensal', MiniChart.mount(document.getElementById('chLucroMensal'), cfgLuc));
 
   const meses = makeMesesResumo(rows, base);
-  renderTable('tblMeses', Object.keys(meses[0]||{"Mês":"Mês"}), meses);
+  renderTable('tblMeses', Object.keys(meses[0]||{"Mês":"Mês"}), meses, {sortable:true});
   document.getElementById('infoMeses').textContent = `${rows.length||0} lançamentos no período`;
 
   const rec = makeReceberTable(rows);
-  renderTable('tblReceber', rec.headers, rec.rows, {onRowClick:(r,i)=> openLineModal(rec.orig[i])});
+  renderTable('tblReceber', rec.headers, rec.rows, {sortable:true,onRowClick:(r,i)=> openLineModal(rec.orig[i])});
   document.getElementById('recStats').textContent = `${rec.rows.length||0} linhas`;
 
   const pag = makePagarTable(rows);
-  renderTable('tblPagar', pag.headers, pag.rows, {onRowClick:(r,i)=> openLineModal(pag.orig[i])});
+  renderTable('tblPagar', pag.headers, pag.rows, {sortable:true,onRowClick:(r,i)=> openLineModal(pag.orig[i])});
   document.getElementById('pagStats').textContent = `${pag.rows.length||0} linhas`;
 
   const pl = porPlano(rows);
@@ -1000,6 +1095,10 @@ elFile.addEventListener('change', async (e)=>{
 });
 mensalMesSelect.addEventListener('change', (e)=>{ state.mensalKey=e.target.value; renderMensalView(); });
 saldoIni.addEventListener('change', refresh);
+['chResMensal','chPVSRMensal','chResAcum','chLucroMensal'].forEach(id=>{
+  const cv=document.getElementById(id);
+  if(cv){cv.style.cursor='zoom-in'; cv.addEventListener('click',()=>openChartModal(id));}
+});
 
 // Export atual
 document.getElementById('btnExport').addEventListener('click', ()=>{
