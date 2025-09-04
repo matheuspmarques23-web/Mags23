@@ -77,7 +77,11 @@
   .chart-tooltip.hidden{display:none}
   canvas{touch-action:pan-y}
   /* === CHART MODAL */
-  #chartModal .modal-card{max-width:90vw;max-height:70vh}
+  #chartModal.modal{position:fixed;inset:0;z-index:9999}
+  #chartModal .modal-backdrop{position:absolute;inset:0;background:#0009}
+  #chartModal .modal-card{position:absolute;inset:auto;top:5vh;left:50%;transform:translateX(-50%);width:min(90vw,1100px);max-height:90vh;background:var(--bg);color:var(--text);border-radius:16px;padding:16px;display:flex;flex-direction:column;gap:12px}
+  #chartModal .modal-body{overflow:auto}
+  #chartModal.hidden{display:none}
 </style>
 </head>
 <body>
@@ -303,7 +307,15 @@ const SIT_MAP = { L:"Liquidado", A:"Aberto" };
 
 const fmtBRL = (n)=> isFinite(n) ? n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}) : '—';
 const fmtCurrencyBR = fmtBRL; // === CHARTS PRO
-const fmtPercent = (n)=> isFinite(n)? n.toFixed(2)+'%':'—';
+// === CHARTS LEGÍVEIS
+function fmtCurrencyCompactBR(n){
+  const s=Math.sign(n)<0?'-':'';
+  const v=Math.abs(n);
+  if(v>=1_000_000) return `${s}R$ ${(v/1_000_000).toFixed(1).replace('.',',')} mi`;
+  if(v>=1_000) return `${s}R$ ${(v/1_000).toFixed(1).replace('.',',')} mil`;
+  return s + fmtCurrencyBR(v);
+}
+const fmtPercent = (n)=> isFinite(n)? n.toFixed(1).replace('.',',')+'%':'—';
 const fmtInt = (n)=> isFinite(n) ? n.toLocaleString('pt-BR') : '—';
 const pad2 = (x)=> String(x).padStart(2,'0');
 const fmtDate = (d)=> d? `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}` : '';
@@ -449,7 +461,7 @@ function groupBy(arr, keyFn){
   return m;
 }
 
-const MiniChart = (()=>{
+const _MiniChartOld = (()=>{
   function niceScale(maxAbs){
     if(maxAbs<=0) return {max:0,ticks:[0]};
     const exp=Math.floor(Math.log10(maxAbs));
@@ -477,6 +489,70 @@ const MiniChart = (()=>{
     return {update:setCfg,getConfig:()=>state.cfg};
   }
   return {mount,niceScale};
+})();
+// === CHARTS LEGÍVEIS
+const MiniChart = (()=>{
+  function niceScale(maxAbs, maxTicks=6){
+    const nice=[1,2,5];
+    if(maxAbs<=0) return {step:1,max:1,ticks:[0,1]};
+    const mag=Math.pow(10, Math.floor(Math.log10(maxAbs)));
+    let step=mag;
+    for(const f of nice){ const s=f*mag; if(maxAbs/s <= maxTicks){ step=s; break; } }
+    const top=Math.ceil(maxAbs/step)*step;
+    const ticks=[]; for(let t=0;t<=top+1e-9;t+=step) ticks.push(t);
+    return {step,max:top,ticks};
+  }
+  const INST=new WeakMap();
+  function mount(canvas,cfg={},opt={}){
+    const ctx=canvas.getContext('2d');
+    const tooltip=document.createElement('div'); tooltip.className='chart-tooltip hidden';
+    canvas.parentElement.style.position='relative'; canvas.parentElement.appendChild(tooltip);
+    const state={cfg:null,hidden:new Set(),legend:[],hover:null,opts:{dataLabels:'auto',...opt},points:[]};
+    const margins={top:36,right:16,bottom:52,left:64};
+    const ro=new ResizeObserver(()=>draw()); ro.observe(canvas);
+    function fmtFull(v,u){return u==='money'?fmtCurrencyBR(v):u==='percent'?fmtPercent(v):v;}
+    function fmtShort(v,u){return u==='money'?fmtCurrencyCompactBR(v):u==='percent'?fmtPercent(v):v;}
+    function fit(){ const dpr=window.devicePixelRatio||1; const w=canvas.clientWidth,h=canvas.clientHeight; canvas.width=w*dpr; canvas.height=h*dpr; ctx.setTransform(dpr,0,0,dpr,0,0); }
+    function draw(){
+      fit(); const cfg=state.cfg; const dpr=window.devicePixelRatio||1; const w=canvas.width/dpr,h=canvas.height/dpr;
+      ctx.clearRect(0,0,w,h);
+      if(!cfg || !cfg.labels.length){ ctx.fillStyle='var(--muted)'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('Sem dados no período',w/2,h/2); return; }
+      const vis=cfg.datasets.filter(d=>!state.hidden.has(d.name));
+      if(!vis.length){ ctx.fillStyle='var(--muted)'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('Sem dados no período',w/2,h/2); return; }
+      const innerW=w-margins.left-margins.right; const innerH=h-margins.top-margins.bottom;
+      const maxAbs=Math.max(...vis.flatMap(s=>s.data.map(v=>Math.abs(v))),0);
+      const scale=niceScale(maxAbs,6);
+      ctx.strokeStyle='var(--text)'; ctx.beginPath(); ctx.moveTo(margins.left,margins.top); ctx.lineTo(margins.left,h-margins.bottom); ctx.lineTo(w-margins.right,h-margins.bottom); ctx.stroke();
+      ctx.textAlign='right'; ctx.textBaseline='middle'; ctx.fillStyle='var(--muted)'; ctx.font='11px sans-serif';
+      scale.ticks.forEach(t=>{ const y=h-margins.bottom-(t/scale.max)*innerH; ctx.strokeStyle='rgba(255,255,255,0.1)'; ctx.beginPath(); ctx.moveTo(margins.left,y); ctx.lineTo(w-margins.right,y); ctx.stroke(); ctx.fillText(fmtFull(t,vis[0].unit),margins.left-4,y); });
+      const stepX=innerW/cfg.labels.length; const skip=cfg.labels.length>10?Math.ceil(cfg.labels.length/10):1; ctx.textAlign='center'; ctx.textBaseline='top';
+      cfg.labels.forEach((lab,i)=>{ if(i%skip!==0) return; const x=margins.left+i*stepX+stepX/2; const y=h-margins.bottom+6; if(skip>1){ ctx.save(); ctx.translate(x,y); ctx.rotate(-Math.PI/6); ctx.fillText(lab,0,0); ctx.restore(); } else ctx.fillText(lab,x,y); });
+      const ptsDs=[];
+      if(cfg.type==='bar'){
+        const bw=stepX*0.8/vis.length; const off=stepX/vis.length;
+        vis.forEach((ds,si)=>{ ctx.fillStyle=ds.color; const pts=[]; ds.data.forEach((v,i)=>{ const x=margins.left+i*stepX+off*si+(off-bw)/2; const bh=scale.max?(v/scale.max)*innerH:0; const y=h-margins.bottom-bh; ctx.fillRect(x,y,bw,bh); pts.push({x:x+bw/2,y,v}); }); ptsDs.push({ds,pts}); });
+      } else {
+        vis.forEach(ds=>{ ctx.strokeStyle=ds.color; ctx.lineWidth=2; ctx.beginPath(); const pts=[]; ds.data.forEach((v,i)=>{ const x=margins.left+i*stepX+stepX/2; const y=h-margins.bottom-(v/scale.max)*innerH; if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); pts.push({x,y,v}); }); ctx.stroke(); ctx.fillStyle=ds.color; pts.forEach(p=>{ctx.beginPath();ctx.arc(p.x,p.y,4,0,Math.PI*2);ctx.fill();}); ptsDs.push({ds,pts}); });
+      }
+      ctx.font='12px sans-serif'; ctx.textBaseline='middle'; ctx.textAlign='left'; let lx=w-margins.right; const ly=margins.top-20; state.legend=[];
+      cfg.datasets.forEach(ds=>{ const wt=ctx.measureText(ds.name).width; lx-=wt+24; state.legend.push({x:lx,y:ly,w:wt+24,name:ds.name}); ctx.fillStyle=ds.color; ctx.fillRect(lx,ly-6,12,12); ctx.fillStyle=state.hidden.has(ds.name)?'var(--muted)':'var(--text)'; ctx.fillText(ds.name,lx+16,ly); });
+      ctx.font='11px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='bottom'; const labels=[];
+      ptsDs.forEach(({ds,pts})=>{ const stepOk=stepX>=24; const policy=state.opts.dataLabels||'auto'; const maxP=pts.reduce((m,p)=>p.v>m.v?p:m,pts[0]); const minP=pts.reduce((m,p)=>p.v<m.v?p:m,pts[0]); const lastP=pts[pts.length-1]; pts.forEach((p,i)=>{ let pr=3; if(state.hover && state.hover.ds===ds && state.hover.i===i) pr=0; else if(p===maxP||p===minP||p===lastP) pr=1; if(state.opts.dataLabels==='none') return; if(policy==='auto' && pr>1 && !stepOk) return; labels.push({x:p.x,y:p.y-4,text:fmtShort(p.v,ds.unit),priority:pr}); }); });
+      labels.sort((a,b)=>a.priority-b.priority); const placed=[]; labels.forEach(l=>{ if(placed.some(p=>Math.abs(p.y-l.y)<12 && Math.abs(p.x-l.x)<24 && p.priority<=l.priority)) return; ctx.fillStyle='var(--text)'; ctx.fillText(l.text,l.x,l.y); placed.push(l); });
+      state.points=ptsDs;
+      if(state.hover){ const {ds,i}=state.hover; const pt=ptsDs.find(p=>p.ds===ds).pts[i]; tooltip.innerHTML=`<b>${cfg.labels[i]}</b><br>${ds.name}: ${fmtFull(ds.data[i],ds.unit)}`; tooltip.style.left=pt.x+10+'px'; tooltip.style.top=pt.y+10+'px'; tooltip.classList.remove('hidden'); } else tooltip.classList.add('hidden');
+    }
+    function setCfg(c){ state.cfg=c; draw(); }
+    function onMove(e){ const r=canvas.getBoundingClientRect(); const x=e.clientX-r.left; const y=e.clientY-r.top; state.hover=null; state.points.forEach(({ds,pts})=>{ pts.forEach((p,i)=>{ if(Math.hypot(p.x-x,p.y-y)<=6) state.hover={ds,i}; }); }); draw(); }
+    function onLeave(){ state.hover=null; draw(); }
+    function onClick(e){ const r=canvas.getBoundingClientRect(); const x=e.clientX-r.left; const y=e.clientY-r.top; const item=state.legend.find(l=>x>=l.x && x<=l.x+l.w && y>=l.y-10 && y<=l.y+10); if(item){ if(state.hidden.has(item.name)) state.hidden.delete(item.name); else state.hidden.add(item.name); draw(); } }
+    canvas.addEventListener('mousemove',onMove); canvas.addEventListener('mouseleave',onLeave); canvas.addEventListener('click',onClick);
+    setCfg(cfg);
+    const inst={update:setCfg,getConfig:()=>state.cfg,draw,onMove,onLeave,onClick,ro,tooltip}; INST.set(canvas,inst); return inst;
+  }
+  function unmount(canvas){ const inst=INST.get(canvas); if(!inst) return; canvas.removeEventListener('mousemove',inst.onMove); canvas.removeEventListener('mouseleave',inst.onLeave); canvas.removeEventListener('click',inst.onClick); inst.ro.disconnect(); inst.tooltip.remove(); INST.delete(canvas); }
+  function redraw(canvas){ const inst=INST.get(canvas); if(inst) inst.draw(); }
+  return {mount,unmount,niceScale,redraw};
 })();
 // === Séries mensais ===
 function computeMonthlySeries(rows, baseKey){
@@ -683,23 +759,46 @@ function toCSV(labels, datasets){
   return [header,...rows].join('\n');
 }
 
+// === CHART MODAL FIX
+function fitCanvasToParent(canvas, ratio=0.6){
+  const p=canvas.parentElement;
+  const w=Math.max(320,p.clientWidth);
+  const h=Math.max(300,Math.floor(w*ratio));
+  const dpr=window.devicePixelRatio||1;
+  canvas.width=Math.floor(w*dpr);
+  canvas.height=Math.floor(h*dpr);
+  canvas.style.width=w+'px';
+  canvas.style.height=h+'px';
+}
+
 function openChartModal(fromCanvasId){
   const inst=chartRegistry.get(fromCanvasId);
   if(!inst) return;
-  const cfg=inst.getConfig();
-  const canvas=document.getElementById('chartModalCanvas');
-  MiniChart.mount(canvas, cfg, {scale:1.5});
-  document.getElementById('chartModal').classList.remove('hidden');
-  document.getElementById('btnChartDownload').onclick=()=>{
-    const url=canvas.toDataURL('image/png');
-    const a=document.createElement('a'); a.href=url; a.download='grafico.png'; a.click();
-  };
-  document.getElementById('btnChartCopyCSV').onclick=()=>{
-    const csv=toCSV(cfg.labels, cfg.datasets);
-    navigator.clipboard?.writeText(csv);
-  };
+  const cfg=structuredClone(inst.getConfig());
+  const modal=document.getElementById('chartModal');
+  modal.classList.remove('hidden');
+  requestAnimationFrame(()=>{
+    const canvas=document.getElementById('chartModalCanvas');
+    MiniChart.unmount(canvas);
+    fitCanvasToParent(canvas,0.6);
+    MiniChart.mount(canvas,cfg,{dataLabels:'all'});
+    document.getElementById('btnChartDownload').onclick=()=>{
+      const url=canvas.toDataURL('image/png');
+      const a=document.createElement('a'); a.href=url; a.download='grafico.png'; a.click();
+    };
+    document.getElementById('btnChartCopyCSV').onclick=()=>{
+      const csv=toCSV(cfg.labels,cfg.datasets);
+      navigator.clipboard?.writeText(csv);
+    };
+  });
 }
-function closeChartModal(){ document.getElementById('chartModal').classList.add('hidden'); }
+
+function closeChartModal(){
+  const modal=document.getElementById('chartModal');
+  const canvas=document.getElementById('chartModalCanvas');
+  MiniChart.unmount(canvas);
+  modal.classList.add('hidden');
+}
 document.getElementById('chartModalClose').onclick=closeChartModal;
 document.querySelector('#chartModal .modal-backdrop').onclick=closeChartModal;
 document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeChartModal(); });
@@ -1001,9 +1100,13 @@ function refresh(){
   const cfgPVSR={type:'bar',labels:prSeries.labels.map(fmtMes),datasets:[{name:'Receber',data:prSeries.rec,unit:'money',color:'#98ecb2'},{name:'Pagar',data:prSeries.pag,unit:'money',color:'#ff9b9b'}]};
   const cfgAcum={type:'line',labels:acumSeries.labels.map(fmtMes),datasets:[{name:'Acumulado',data:acumSeries.values,unit:'money',color:'#f26722'}]};
   const cfgLuc={type:'line',labels:lucroSeries.labels.map(fmtMes),datasets:[{name:'Lucratividade',data:lucroSeries.values,unit:'percent',color:'#98ecb2'}]};
+  MiniChart.unmount(document.getElementById('chResMensal'));
   storeChartInstance('chResMensal', MiniChart.mount(document.getElementById('chResMensal'), cfgRes));
+  MiniChart.unmount(document.getElementById('chPVSRMensal'));
   storeChartInstance('chPVSRMensal', MiniChart.mount(document.getElementById('chPVSRMensal'), cfgPVSR));
+  MiniChart.unmount(document.getElementById('chResAcum'));
   storeChartInstance('chResAcum', MiniChart.mount(document.getElementById('chResAcum'), cfgAcum));
+  MiniChart.unmount(document.getElementById('chLucroMensal'));
   storeChartInstance('chLucroMensal', MiniChart.mount(document.getElementById('chLucroMensal'), cfgLuc));
 
   const meses = makeMesesResumo(rows, base);
