@@ -288,14 +288,6 @@
         <div class="label">Valor × Tempo (dispersão) — r = correlação</div>
         <canvas id="chartValorTempo"></canvas>
       </div>
-      <div class="card">
-        <div class="label">Top 5 Serviços (Receita)</div>
-        <canvas id="chartTopServicos"></canvas>
-      </div>
-      <div class="card">
-        <div class="label">Top 10 Peças (Receita)</div>
-        <canvas id="chartTopPecas"></canvas>
-      </div>
     </div>
   </section>
 
@@ -345,10 +337,6 @@
       <div class="card">
         <div class="label">Timeline</div>
         <div class="timeline" id="drawerTimeline"></div>
-      </div>
-      <div class="card subcard">
-        <div class="label">Composição do Total (Serviços × Peças)</div>
-        <canvas id="chartOSMix"></canvas>
       </div>
       <div class="card">
         <div class="label">Serviços</div>
@@ -1055,9 +1043,6 @@ function showDrawerTab(tab){
   document.querySelectorAll('.drawerTab').forEach(div => {
     div.classList.toggle('hidden', div.id !== `drawerTab-${tab}`);
   });
-  if(tab === 'det' && drawerDataRef.index >= 0){
-    renderOSMixChart(drawerDataRef.list[drawerDataRef.index]);
-  }
 }
 
 function updateMesTable(data){
@@ -1099,7 +1084,6 @@ function openDrawerWith(row, idx, list){
 function closeDrawer(){
   document.getElementById('drawer').classList.remove('open');
   document.getElementById('drawer').setAttribute('aria-hidden','true');
-  if(osMixChart){ osMixChart.destroy(); osMixChart = null; }
 }
 function navDrawer(delta){
   if(!drawerDataRef.list.length) return;
@@ -1267,62 +1251,6 @@ function renderDrawer(r, list=null, idx=null){
   });
 
   document.getElementById('drawerIndexHint').textContent = `${drawerDataRef.index+1} / ${drawerDataRef.list.length}`;
-}
-
-// ====== Pizza no pop-up da OS ======
-let osMixChart = null;
-
-function renderOSMixChart(rec){
-  try {
-    if(osMixChart){ osMixChart.destroy(); osMixChart = null; }
-
-    const el = document.getElementById('chartOSMix');
-    if(!el) return;
-
-    // Totais de serviços e peças
-    let totServ = (typeof rec.totalServicos === 'number' ? rec.totalServicos : 0);
-    let totPecs = (typeof rec.totalPecas   === 'number' ? rec.totalPecas   : 0);
-
-    if(totServ === 0 && Array.isArray(rec.servicos)){
-      totServ = rec.servicos.reduce((a,b)=> a + safeNum(b.total), 0);
-    }
-    if(totPecs === 0 && Array.isArray(rec.pecas)){
-      totPecs = rec.pecas.reduce((a,b)=> a + safeNum(b.total), 0);
-    }
-
-    let totalCP = parseMoneyCell(rec["Total CP"]);
-    if(!totalCP || totalCP <= 0){
-      totalCP = totServ + totPecs; // fallback: ainda mostra a pizza
-    }
-
-    const { text } = chartColors();
-
-    osMixChart = new Chart(el.getContext('2d'), {
-      type: 'pie',
-      data: {
-        labels: ['Serviços', 'Peças'],
-        datasets: [{ data: [totServ, totPecs] }]
-      },
-      options: {
-        plugins: {
-          legend: { labels: { color: text } },
-          title: { display: true, text: 'Composição do Total (Serviços × Peças)', color: text },
-          tooltip: {
-            callbacks: {
-              label: (ctx)=>{
-                const v = ctx.parsed || 0;
-                const p = totalCP ? (v/totalCP)*100 : 0;
-                return `${ctx.label}: R$ ${Number(v).toLocaleString('pt-BR')} (${p.toFixed(1)}%)`;
-              }
-            }
-          }
-        }
-      }
-    });
-
-  } catch(e){
-    console.error('OS Mix chart error', e);
-  }
 }
 
 /* =================== Gráfico Ano =================== */
@@ -1712,92 +1640,6 @@ function updateAnalises(){
       }
     }
   });
-
-  // ===== Top 5 Serviços (Faturado) =====
-  {
-    const { text, muted } = chartColors();
-    const dataYear = currentYearData();
-    const mapServ = new Map();
-
-    dataYear.forEach(r=>{
-      if (classifyRec(r).fin === 'Faturado' && Array.isArray(r.servicos)) {
-        r.servicos.forEach(s=>{
-          pushAgg(mapServ, s.descricao, safeNum(s.total));
-        });
-      }
-    });
-
-    let arr = Array.from(mapServ.values()).sort((a,b)=>b.total-a.total).slice(0,5);
-    const labels = arr.map(x=>x.label);
-    const values = arr.map(x=>x.total);
-    const freqs  = arr.map(x=>x.freq);
-
-    chartsAnalises.topServicos = new Chart(document.getElementById('chartTopServicos'), {
-      type: 'bar',
-      data: { labels, datasets: [{ label: 'Receita (R$)', data: values }] },
-      options: {
-        indexAxis: 'y',
-        plugins: {
-          legend: { labels: { color: text } },
-          tooltip: {
-            callbacks: {
-              label: (ctx)=>{
-                const i = ctx.dataIndex;
-                return `R$ ${Number(ctx.parsed.x||0).toLocaleString('pt-BR')} (ocorrências: ${freqs[i]})`;
-              }
-            }
-          }
-        },
-        scales: {
-          x: { ticks: { color: muted, callback: v => 'R$ '+Number(v).toLocaleString('pt-BR') }, grid: { color: muted+'30' } },
-          y: { ticks: { color: muted }, grid: { color: muted+'30' } }
-        }
-      }
-    });
-  }
-
-  // ===== Top 10 Peças (Faturado) =====
-  {
-    const { text, muted } = chartColors();
-    const dataYear = currentYearData();
-    const mapPecas = new Map();
-
-    dataYear.forEach(r=>{
-      if (classifyRec(r).fin === 'Faturado' && Array.isArray(r.pecas)) {
-        r.pecas.forEach(p=>{
-          pushAgg(mapPecas, p.descricao, safeNum(p.total));
-        });
-      }
-    });
-
-    let arr = Array.from(mapPecas.values()).sort((a,b)=>b.total-a.total).slice(0,10);
-    const labels = arr.map(x=>x.label);
-    const values = arr.map(x=>x.total);
-    const freqs  = arr.map(x=>x.freq);
-
-    chartsAnalises.topPecas = new Chart(document.getElementById('chartTopPecas'), {
-      type: 'bar',
-      data: { labels, datasets: [{ label: 'Receita (R$)', data: values }] },
-      options: {
-        indexAxis: 'y',
-        plugins: {
-          legend: { labels: { color: text } },
-          tooltip: {
-            callbacks: {
-              label: (ctx)=>{
-                const i = ctx.dataIndex;
-                return `R$ ${Number(ctx.parsed.x||0).toLocaleString('pt-BR')} (ocorrências: ${freqs[i]})`;
-              }
-            }
-          }
-        },
-        scales: {
-          x: { ticks: { color: muted, callback: v => 'R$ '+Number(v).toLocaleString('pt-BR') }, grid: { color: muted+'30' } },
-          y: { ticks: { color: muted }, grid: { color: muted+'30' } }
-        }
-      }
-    });
-  }
 
   // ====== Liga o zoom em todos os canvases desta aba (idempotente)
   (function wireChartZoomHandlers(){
