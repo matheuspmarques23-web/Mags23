@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard Financeiro</title>
+  <!-- Bibliotecas -->
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+  <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.1/css/buttons.dataTables.min.css"/>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+  <script src="https://cdn.datatables.net/buttons/2.4.1/js/dataTables.buttons.min.js"></script>
+  <script src="https://cdn.datatables.net/buttons/2.4.1/js/buttons.html5.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dayjs/1.11.10/dayjs.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dayjs/1.11.10/plugin/customParseFormat.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://unpkg.com/micromodal/dist/micromodal.min.js"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    :root{
+      --bg:#f5f5f5;--fg:#222;--card:#fff;
+      --receita:#4caf50;--despesa:#f44336;--resultado:#2196f3;
+    }
+    [data-theme="dark"]{--bg:#121212;--fg:#eee;--card:#1e1e1e;}
+    body{margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:var(--fg);} 
+    header{display:flex;align-items:center;padding:10px;background:var(--card);box-shadow:0 2px 4px rgba(0,0,0,.1);}
+    header h1{margin:0;font-size:1.2rem;}
+    nav button{margin-right:8px;}
+    .hidden{display:none;}
+    section{padding:20px;}
+    .card{background:var(--card);padding:15px;border-radius:10px;margin:10px;display:inline-block;min-width:150px;}
+  </style>
+</head>
+<body>
+<header>
+  <h1>Motorhub - Dashboard Financeiro</h1>
+  <input type="file" id="csvInput" accept=".csv" />
+</header>
+<nav>
+  <button data-target="inicio">Início</button>
+  <button data-target="plano">Plano de Contas</button>
+  <button data-target="lancamentos">Lançamentos</button>
+  <button data-target="relatorios-financeiro">Relatórios Financeiro</button>
+  <button data-target="relatorios-contas">Relatórios Contas</button>
+  <button data-target="dash-geral">Dash Geral</button>
+  <button data-target="dash-mensal">Dash Mensal</button>
+  <button data-target="dash-receitas">Dash Receitas</button>
+  <button data-target="dash-despesas">Dash Despesas</button>
+</nav>
+<section id="inicio">Bem-vindo! Faça upload do CSV para começar.</section>
+<section id="plano" class="hidden">
+  <h2>Plano de Contas</h2>
+  <div id="planoContent">Meta por plano será exibida aqui.</div>
+</section>
+<section id="lancamentos" class="hidden">
+  <h2>Lançamentos</h2>
+  <table id="tableLanc" class="display" style="width:100%"></table>
+</section>
+<section id="relatorios-financeiro" class="hidden">
+  <h2>Relatório Financeiro</h2>
+  <canvas id="rfChart"></canvas>
+</section>
+<section id="relatorios-contas" class="hidden">
+  <h2>Relatório de Contas</h2>
+  <canvas id="rcChart"></canvas>
+</section>
+<section id="dash-geral" class="hidden">
+  <h2>Dashboard Geral</h2>
+  <div id="dashGeralCards" class="cards"></div>
+  <canvas id="dashGeralChart"></canvas>
+</section>
+<section id="dash-mensal" class="hidden">
+  <h2>Dashboard Mensal</h2>
+  <div id="dashMensalCards" class="cards"></div>
+  <canvas id="dashMensalChart"></canvas>
+</section>
+<section id="dash-receitas" class="hidden">
+  <h2>Dashboard Receitas</h2>
+  <div id="dashReceitasCards" class="cards"></div>
+  <canvas id="dashReceitasChart"></canvas>
+</section>
+<section id="dash-despesas" class="hidden">
+  <h2>Dashboard Despesas</h2>
+  <div id="dashDespesasCards" class="cards"></div>
+  <canvas id="dashDespesasChart"></canvas>
+</section>
+<script>
+/*
+Dicionário de dados e decisões:
+- natureza: 'Receita' ou 'Despesa' derivado de Tipo.
+- clienteFornecedor: Devedor ou Beneficiado conforme natureza.
+- status: 'Pago' se houver Pagamento.
+- valor: primeiro entre Valor, Total Liquido ou Total, convertido para número.
+- datas: emissao, vencimento, pagamento (Day.js, formato BR) com campos mes_* e dia_*.
+- agingDias: diferença em dias para títulos abertos.
+- plano/centro/doc: normalizados com defaults.
+- id: índice da linha original.
+*/
+
+let rows = [];
+let filteredRows = [];
+let settings = {};
+
+const dayjsCustom = dayjs;
+dayjsCustom.extend(dayjs_plugin_customParseFormat);
+
+document.getElementById('csvInput').addEventListener('change', e=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  Papa.parse(file,{
+    header:true,
+    delimiter:';',
+    skipEmptyLines:true,
+    encoding:'UTF-8',
+    complete:onCsvLoaded
+  });
+});
+
+function onCsvLoaded(res){
+  rows = res.data.map(normalizeRow);
+  applyFilters();
+  console.log('✅ Build OK');
+}
+
+function normalizeRow(r,idx){
+  const parseDate = s=> s? dayjsCustom(s,'DD/MM/YYYY',true): null;
+  const toNumber = s=> s? parseFloat(s.replace(/\./g,'').replace(',','.')):0;
+  const natureza = r['Tipo']==='Receber'? 'Receita':'Despesa';
+  const clienteFornecedor = natureza==='Receita'? r['Devedor']:r['Beneficiado'];
+  const emissao = parseDate(r['Emissão']);
+  const venc = parseDate(r['Vencimento']);
+  const pagto = parseDate(r['Pagamento']);
+  const valor = toNumber(r['Valor']||r['Total Liquido']||r['Total']);
+  const status = pagto? 'Pago':'Aberto';
+  const agingDias = (!pagto && venc)? dayjs().diff(venc,'day'):0;
+  return {
+    id:idx,natureza,clienteFornecedor,status,valor,
+    emissao, vencimento:venc, pagamento:pagto,
+    mes_emissao: emissao? emissao.month()+1:null,
+    mes_venc: venc? venc.month()+1:null,
+    mes_pagto: pagto? pagto.month()+1:null,
+    dia_emissao: emissao? emissao.date():null,
+    dia_venc: venc? venc.date():null,
+    dia_pagto: pagto? pagto.date():null,
+    agingDias,
+    plano: r['Plano de contas']||'Não classificado',
+    centro: r['Centro de contas']||'Geral',
+    doc: r['Doc.']||'',
+    descricao: r['Descrição']||''
+  };
+}
+
+function getFilteredRows(){
+  // filtros simplificados
+  return rows; // TODO: aplicar filtros
+}
+
+function applyFilters(){
+  filteredRows = getFilteredRows();
+  const kpis = computeKpis(filteredRows);
+  renderKpis(kpis);
+  renderLancamentosTable();
+  renderRelatorioFinanceiro();
+  renderRelatorioContas();
+  renderDashGeral();
+  renderDashMensal();
+  renderDashReceitas();
+  renderDashDespesas();
+}
+
+function computeKpis(data){
+  const sum = (arr,f)=>arr.reduce((a,b)=>a+f(b),0);
+  const receitaEmitida = sum(data.filter(r=>r.natureza==='Receita' && r.emissao), r=>r.valor);
+  const receitaRecebida = sum(data.filter(r=>r.natureza==='Receita' && r.pagamento), r=>r.valor);
+  const despesaIncorrida = sum(data.filter(r=>r.natureza==='Despesa' && r.emissao), r=>r.valor);
+  const despesaPaga = sum(data.filter(r=>r.natureza==='Despesa' && r.pagamento), r=>r.valor);
+  const resultadoOperacional = receitaEmitida - despesaIncorrida;
+  const resultadoCaixa = receitaRecebida - despesaPaga;
+  return {receitaEmitida,receitaRecebida,despesaIncorrida,despesaPaga,resultadoOperacional,resultadoCaixa};
+}
+
+function renderKpis(k){
+  // Exemplo simples de cards na tela geral
+  const container = document.getElementById('dashGeralCards');
+  container.innerHTML = '';
+  const mk = (label,val,color)=>`<div class="card" style="border-top:4px solid ${color}"><h3>${label}</h3><p>${val.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}</p></div>`;
+  container.innerHTML += mk('Receita',k.receitaEmitida,'var(--receita)');
+  container.innerHTML += mk('Despesa',k.despesaIncorrida,'var(--despesa)');
+  container.innerHTML += mk('Resultado',k.resultadoOperacional,'var(--resultado)');
+}
+
+function renderLancamentosTable(){
+  const table = $('#tableLanc');
+  table.DataTable().clear().destroy();
+  table.DataTable({
+    data: filteredRows,
+    columns:[
+      {data: r=> r.emissao? r.emissao.format('DD/MM/YYYY'):'' , title:'Emissão'},
+      {data: r=> r.vencimento? r.vencimento.format('DD/MM/YYYY'):'', title:'Vencimento'},
+      {data: r=> r.pagamento? r.pagamento.format('DD/MM/YYYY'):'', title:'Pagamento'},
+      {data:'natureza', title:'Natureza'},
+      {data:'plano', title:'Plano'},
+      {data:'centro', title:'Centro'},
+      {data:'clienteFornecedor', title:'Cliente/Fornecedor'},
+      {data:'doc', title:'Doc.'},
+      {data:'status', title:'Status'},
+      {data:r=>r.valor.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}), title:'Valor'},
+      {data:'agingDias', title:'Atraso'},
+      {data:'descricao', title:'Descrição'}
+    ]
+  });
+}
+
+function renderRelatorioFinanceiro(){
+  const ctx = document.getElementById('rfChart');
+  new Chart(ctx,{type:'bar',data:{labels:['Receita','Despesa'],datasets:[{data:[0,0],backgroundColor:['var(--receita)','var(--despesa)']} ]}});
+}
+function renderRelatorioContas(){
+  const ctx = document.getElementById('rcChart');
+  new Chart(ctx,{type:'doughnut',data:{labels:[''],datasets:[{data:[1],backgroundColor:['var(--resultado)']} ]}});
+}
+function renderDashGeral(){
+  const ctx = document.getElementById('dashGeralChart');
+  new Chart(ctx,{type:'line',data:{labels:[],datasets:[{label:'Resultado',data:[],borderColor:'var(--resultado)'}]}});
+}
+function renderDashMensal(){
+  const ctx = document.getElementById('dashMensalChart');
+  new Chart(ctx,{type:'bar',data:{labels:[],datasets:[{label:'Saldo',data:[],backgroundColor:'var(--resultado)'}]}});
+}
+function renderDashReceitas(){
+  const ctx = document.getElementById('dashReceitasChart');
+  new Chart(ctx,{type:'bar',data:{labels:[],datasets:[{label:'Receitas',data:[],backgroundColor:'var(--receita)'}]}});
+}
+function renderDashDespesas(){
+  const ctx = document.getElementById('dashDespesasChart');
+  new Chart(ctx,{type:'bar',data:{labels:[],datasets:[{label:'Despesas',data:[],backgroundColor:'var(--despesa)'}]}});
+}
+
+function saveSettings(){localStorage.setItem('mhSettings',JSON.stringify(settings));}
+function loadSettings(){settings=JSON.parse(localStorage.getItem('mhSettings')||'{}');}
+
+// Navegação simples
+const buttons = document.querySelectorAll('nav button');
+buttons.forEach(btn=>btn.addEventListener('click',()=>{
+  document.querySelectorAll('section').forEach(s=>s.classList.add('hidden'));
+  document.getElementById(btn.dataset.target).classList.remove('hidden');
+}));
+
+loadSettings();
+</script>
+</body>
+</html>
