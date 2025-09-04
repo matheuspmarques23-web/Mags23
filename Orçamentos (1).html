@@ -285,20 +285,16 @@
         <canvas id="chartTicketMedio"></canvas>
       </div>
       <div class="card">
-        <div class="label">Mix Serviços × Peças (R$ e %)</div>
-        <canvas id="chartMixServPecas"></canvas>
-      </div>
-      <div class="card">
         <div class="label">Valor × Tempo (dispersão) — r = correlação</div>
         <canvas id="chartValorTempo"></canvas>
       </div>
       <div class="card">
-        <div class="label">Aging (WIP) — OS em aberto por faixas (dias)</div>
-        <canvas id="chartAgingWIP"></canvas>
+        <div class="label">Top 5 Serviços (Receita)</div>
+        <canvas id="chartTopServicos"></canvas>
       </div>
       <div class="card">
-        <div class="label">Pareto de Itens/Serviços (80/20)</div>
-        <canvas id="chartParetoItens"></canvas>
+        <div class="label">Top 10 Peças (Receita)</div>
+        <canvas id="chartTopPecas"></canvas>
       </div>
     </div>
   </section>
@@ -751,6 +747,18 @@ function parseMoneyCell(v){
   return isNaN(n) ? 0 : n;
 }
 
+function safeNum(v){
+  if (typeof v === 'number') return v;
+  return parseMoneyCell(v);
+}
+function pushAgg(map, label, inc){
+  const key = (label || '—').trim().toUpperCase();
+  const cur = map.get(key) || { label: (label || '—').trim(), total: 0, freq: 0 };
+  cur.total += inc || 0;
+  cur.freq  += 1;
+  map.set(key, cur);
+}
+
 /* =================== Ano/Mês =================== */
 function ymKey(rec){
   const base = rec._de || rec._ds;
@@ -1047,6 +1055,9 @@ function showDrawerTab(tab){
   document.querySelectorAll('.drawerTab').forEach(div => {
     div.classList.toggle('hidden', div.id !== `drawerTab-${tab}`);
   });
+  if(tab === 'det' && drawerDataRef.index >= 0){
+    renderOSMixChart(drawerDataRef.list[drawerDataRef.index]);
+  }
 }
 
 function updateMesTable(data){
@@ -1245,9 +1256,6 @@ function renderDrawer(r, list=null, idx=null){
     tr.appendChild(td); pecBody.appendChild(tr);
   }
 
-  // Renderiza pizza de Serviços × Peças
-  renderOSMixChart(r);
-
   const histBody = document.querySelector('#drawerHistoricoTable tbody');
   histBody.textContent = '';
   const historico = DATA.filter(o => o.Placa === r.Placa).sort((a,b)=>(b._de||0)-(a._de||0));
@@ -1266,25 +1274,27 @@ let osMixChart = null;
 
 function renderOSMixChart(rec){
   try {
-    // Destrói o anterior
     if(osMixChart){ osMixChart.destroy(); osMixChart = null; }
 
     const el = document.getElementById('chartOSMix');
-    if(!el) return; // caso a aba 1 não tenha o canvas
+    if(!el) return;
 
-    // Totais
-    let totServ = typeof rec.totalServicos === 'number' ? rec.totalServicos : 0;
-    let totPecs = typeof rec.totalPecas   === 'number' ? rec.totalPecas   : 0;
+    // Totais de serviços e peças
+    let totServ = (typeof rec.totalServicos === 'number' ? rec.totalServicos : 0);
+    let totPecs = (typeof rec.totalPecas   === 'number' ? rec.totalPecas   : 0);
 
-    // Se algum vier zerado e houver itens, soma por fallback
     if(totServ === 0 && Array.isArray(rec.servicos)){
-      totServ = rec.servicos.reduce((a,b)=> a + (b.total||0), 0);
+      totServ = rec.servicos.reduce((a,b)=> a + safeNum(b.total), 0);
     }
     if(totPecs === 0 && Array.isArray(rec.pecas)){
-      totPecs = rec.pecas.reduce((a,b)=> a + (b.total||0), 0);
+      totPecs = rec.pecas.reduce((a,b)=> a + safeNum(b.total), 0);
     }
 
-    const totalCP = parseMoneyCell(rec["Total CP"]) || (totServ + totPecs);
+    let totalCP = parseMoneyCell(rec["Total CP"]);
+    if(!totalCP || totalCP <= 0){
+      totalCP = totServ + totPecs; // fallback: ainda mostra a pizza
+    }
+
     const { text } = chartColors();
 
     osMixChart = new Chart(el.getContext('2d'), {
@@ -1296,6 +1306,7 @@ function renderOSMixChart(rec){
       options: {
         plugins: {
           legend: { labels: { color: text } },
+          title: { display: true, text: 'Composição do Total (Serviços × Peças)', color: text },
           tooltip: {
             callbacks: {
               label: (ctx)=>{
@@ -1304,16 +1315,14 @@ function renderOSMixChart(rec){
                 return `${ctx.label}: R$ ${Number(v).toLocaleString('pt-BR')} (${p.toFixed(1)}%)`;
               }
             }
-          },
-          title: {
-            display: true,
-            text: 'Composição do Total (Serviços × Peças)',
-            color: text
           }
         }
       }
     });
-  } catch(e){ console.error('OS Mix chart error', e); }
+
+  } catch(e){
+    console.error('OS Mix chart error', e);
+  }
 }
 
 /* =================== Gráfico Ano =================== */
@@ -1672,53 +1681,6 @@ function updateAnalises(){
     }
   });
 
-  // ===== Mix Serviços × Peças
-  let totServ = 0, totPecas = 0;
-  data.forEach(r=>{
-    if (classifyRec(r).fin === 'Faturado'){
-      totServ  += (r.totalServicos || 0);
-      totPecas += (r.totalPecas   || 0);
-    }
-  });
-  const mixTotal = totServ + totPecas;
-  const mixPercServ  = mixTotal ? (totServ  / mixTotal) * 100 : 0;
-  const mixPercPecas = mixTotal ? (totPecas / mixTotal) * 100 : 0;
-
-  chartsAnalises.mix = new Chart(document.getElementById('chartMixServPecas'), {
-    type: 'bar',
-    data: {
-      labels: ['Serviços','Peças'],
-      datasets: [
-        { label: 'R$', data: [totServ, totPecas], yAxisID: 'y' },
-        { label: '% do faturado', data: [mixPercServ, mixPercPecas], type: 'line', yAxisID: 'y1', tension: .25, fill: false }
-      ]
-    },
-    options: {
-      responsive: true,
-      plugins: {
-        legend: { labels: { color: text } },
-        tooltip: {
-          callbacks: {
-            label: (ctx) => ctx.dataset.yAxisID==='y'
-              ? ('R$ ' + Number(ctx.parsed.y||0).toLocaleString('pt-BR'))
-              : (ctx.parsed.y.toFixed(1) + '%')
-          }
-        }
-      },
-      scales: {
-        x: { ticks: { color: muted }, grid: { color: muted+'30' } },
-        y: {
-          position:'left', ticks: { color: muted, callback:(v)=>'R$ '+Number(v).toLocaleString('pt-BR') },
-          grid:{ color: muted+'30' }
-        },
-        y1: {
-          position:'right', min:0, max:100, ticks:{ color: muted, callback:(v)=>v+'%' },
-          grid:{ drawOnChartArea:false }
-        }
-      }
-    }
-  });
-
   // ===== Dispersão Valor × Tempo (+ r)
   const pts = [];
   const xs = [], ys = [];
@@ -1751,87 +1713,91 @@ function updateAnalises(){
     }
   });
 
-  // ===== Aging (WIP) — OS abertas por faixas
-  const now = new Date();
-  const buckets = { '0–3':0, '4–7':0, '8–14':0, '15–30':0, '30+':0 };
+  // ===== Top 5 Serviços (Faturado) =====
+  {
+    const { text, muted } = chartColors();
+    const dataYear = currentYearData();
+    const mapServ = new Map();
 
-  data.forEach(r=>{
-    if(!r._ds && r._de){
-      const age = Math.max(0, Math.floor(daysBetween(r._de, now)));
-      if(age<=3) buckets['0–3']++;
-      else if(age<=7) buckets['4–7']++;
-      else if(age<=14) buckets['8–14']++;
-      else if(age<=30) buckets['15–30']++;
-      else buckets['30+']++;
-    }
-  });
+    dataYear.forEach(r=>{
+      if (classifyRec(r).fin === 'Faturado' && Array.isArray(r.servicos)) {
+        r.servicos.forEach(s=>{
+          pushAgg(mapServ, s.descricao, safeNum(s.total));
+        });
+      }
+    });
 
-  chartsAnalises.aging = new Chart(document.getElementById('chartAgingWIP'), {
-    type: 'bar',
-    data: { labels: Object.keys(buckets), datasets: [{ label:'Qtd OS abertas', data: Object.values(buckets) }] },
-    options: {
-      plugins: { legend:{labels:{color:text}} },
-      scales: { x:{ ticks:{color:muted}, grid:{color:muted+'30'} }, y:{ ticks:{color:muted}, grid:{color:muted+'30'} } }
-    }
-  });
+    let arr = Array.from(mapServ.values()).sort((a,b)=>b.total-a.total).slice(0,5);
+    const labels = arr.map(x=>x.label);
+    const values = arr.map(x=>x.total);
+    const freqs  = arr.map(x=>x.freq);
 
-  // ===== Pareto Itens/Serviços
-  const mapItem = new Map();
-  const pushItem = (desc, total)=>{
-    const key = (desc||'—').trim().toUpperCase();
-    const cur = mapItem.get(key) || { total:0, freq:0, label: (desc||'—').trim() };
-    cur.total += (total||0);
-    cur.freq  += 1;
-    mapItem.set(key, cur);
-  };
-
-  data.forEach(r=>{
-    (r.servicos||[]).forEach(s=> pushItem(s.descricao, s.total));
-    (r.pecas||[]).forEach(p=> pushItem(p.descricao, p.total));
-  });
-
-  let arr = Array.from(mapItem.values()).sort((a,b)=>b.total-a.total).slice(0,15);
-  const labelsPareto = arr.map(x=>x.label);
-  const valsPareto   = arr.map(x=>x.total);
-  const freqsPareto  = arr.map(x=>x.freq);
-  const totalPareto  = valsPareto.reduce((a,b)=>a+b,0);
-  const cumPerc      = [];
-  arr.reduce((acc,cur,i)=>{
-    const nv = acc + cur.total;
-    cumPerc[i] = totalPareto? (nv/totalPareto)*100 : 0;
-    return nv;
-  }, 0);
-
-  chartsAnalises.pareto = new Chart(document.getElementById('chartParetoItens'), {
-    type: 'bar',
-    data: {
-      labels: labelsPareto,
-      datasets: [
-        { label:'Receita (R$)', data: valsPareto, yAxisID:'y' },
-        { label:'Acumulado (%)', data: cumPerc, type:'line', yAxisID:'y1', tension:.25, fill:false }
-      ]
-    },
-    options: {
-      plugins: {
-        legend:{ labels:{ color:text } },
-        tooltip:{ callbacks:{
-          label:(ctx)=>{
-            if(ctx.dataset.yAxisID==='y'){
-              const i = ctx.dataIndex;
-              return `Receita: R$ ${Number(ctx.parsed.y||0).toLocaleString('pt-BR')} | Ocorrências: ${freqsPareto[i]}`;
-            } else {
-              return `Acumulado: ${ctx.parsed.y.toFixed(1)}%`;
+    chartsAnalises.topServicos = new Chart(document.getElementById('chartTopServicos'), {
+      type: 'bar',
+      data: { labels, datasets: [{ label: 'Receita (R$)', data: values }] },
+      options: {
+        indexAxis: 'y',
+        plugins: {
+          legend: { labels: { color: text } },
+          tooltip: {
+            callbacks: {
+              label: (ctx)=>{
+                const i = ctx.dataIndex;
+                return `R$ ${Number(ctx.parsed.x||0).toLocaleString('pt-BR')} (ocorrências: ${freqs[i]})`;
+              }
             }
           }
-        }}
-      },
-      scales: {
-        x:{ ticks:{ color:muted }, grid:{ color:muted+'30' } },
-        y:{ position:'left', ticks:{ color:muted, callback:(v)=>'R$ '+Number(v).toLocaleString('pt-BR') }, grid:{ color:muted+'30' } },
-        y1:{ position:'right', min:0, max:100, ticks:{ color:muted, callback:(v)=>v+'%' }, grid:{ drawOnChartArea:false } }
+        },
+        scales: {
+          x: { ticks: { color: muted, callback: v => 'R$ '+Number(v).toLocaleString('pt-BR') }, grid: { color: muted+'30' } },
+          y: { ticks: { color: muted }, grid: { color: muted+'30' } }
+        }
       }
-    }
-  });
+    });
+  }
+
+  // ===== Top 10 Peças (Faturado) =====
+  {
+    const { text, muted } = chartColors();
+    const dataYear = currentYearData();
+    const mapPecas = new Map();
+
+    dataYear.forEach(r=>{
+      if (classifyRec(r).fin === 'Faturado' && Array.isArray(r.pecas)) {
+        r.pecas.forEach(p=>{
+          pushAgg(mapPecas, p.descricao, safeNum(p.total));
+        });
+      }
+    });
+
+    let arr = Array.from(mapPecas.values()).sort((a,b)=>b.total-a.total).slice(0,10);
+    const labels = arr.map(x=>x.label);
+    const values = arr.map(x=>x.total);
+    const freqs  = arr.map(x=>x.freq);
+
+    chartsAnalises.topPecas = new Chart(document.getElementById('chartTopPecas'), {
+      type: 'bar',
+      data: { labels, datasets: [{ label: 'Receita (R$)', data: values }] },
+      options: {
+        indexAxis: 'y',
+        plugins: {
+          legend: { labels: { color: text } },
+          tooltip: {
+            callbacks: {
+              label: (ctx)=>{
+                const i = ctx.dataIndex;
+                return `R$ ${Number(ctx.parsed.x||0).toLocaleString('pt-BR')} (ocorrências: ${freqs[i]})`;
+              }
+            }
+          }
+        },
+        scales: {
+          x: { ticks: { color: muted, callback: v => 'R$ '+Number(v).toLocaleString('pt-BR') }, grid: { color: muted+'30' } },
+          y: { ticks: { color: muted }, grid: { color: muted+'30' } }
+        }
+      }
+    });
+  }
 
   // ====== Liga o zoom em todos os canvases desta aba (idempotente)
   (function wireChartZoomHandlers(){
