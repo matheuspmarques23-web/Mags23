@@ -59,6 +59,8 @@
   .nowrap{white-space:nowrap}
   
   .foot{margin-top:10px;display:flex;justify-content:space-between;align-items:center;color:var(--muted);font-size:12px}
+  #lineModal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);align-items:center;justify-content:center;z-index:30}
+  #lineModalContent button{margin-top:8px}
 </style>
 </head>
 <body>
@@ -131,19 +133,22 @@
 
   <main>
     <section class="kpis">
-      <div class="card kpi"><div class="title">Saldo Previsto do Período</div><div class="value" id="kPrev">—</div><div class="hint">Soma de Receber − Pagar (base no período)</div></div>
-      <div class="card kpi"><div class="title">Realizado no Período</div><div class="value" id="kReal">—</div><div class="hint">Pagamentos/Recebimentos com data na janela</div></div>
-      <div class="card kpi"><div class="title">A Receber em Aberto</div><div class="value" id="kARAberto">—</div><div class="hint">Inclui atrasados</div></div>
-      <div class="card kpi"><div class="title">A Pagar em Aberto</div><div class="value" id="kAPAberto">—</div><div class="hint">Inclui atrasados</div></div>
+      <div class="card kpi"><div class="title">Resultado</div><div class="value" id="kResultado">—</div><div class="hint">Receber − Pagar</div></div>
+      <div class="card kpi"><div class="title">Contas a pagar</div><div class="value" id="kPagar">—</div><div class="hint">Conforme base</div></div>
+      <div class="card kpi"><div class="title">Contas a receber</div><div class="value" id="kReceber">—</div><div class="hint">Conforme base</div></div>
+      <div class="card kpi"><div class="title">Lucratividade (%)</div><div class="value" id="kLucratividade">—</div><div class="hint">Resultado/Receber</div></div>
     </section>
 
     <div class="tabs" id="tabs">
       <button class="tab active" data-tab="geral">Visão Geral</button>
+      <button class="tab" data-tab="mensal">Mensal</button>
       <button class="tab" data-tab="receber">Receber</button>
       <button class="tab" data-tab="pagar">Pagar</button>
       <button class="tab" data-tab="aging">Aging & Risco</button>
       <button class="tab" data-tab="planos">Planos & Centros</button>
       <button class="tab" data-tab="detalhe">Detalhes</button>
+      <button class="tab" data-tab="relcaixa">Relatório (Caixa)</button>
+      <button class="tab" data-tab="diag">Diagnóstico</button>
     </div>
 
     <section id="tab-geral" class="card">
@@ -156,7 +161,32 @@
         </div>
       </div>
       <div id="tblMeses"></div>
+      <!-- === Gráficos mensais === -->
+      <div class="row" style="gap:12px;flex-wrap:wrap">
+        <div class="card" style="flex:1;min-width:320px"><canvas id="chResMensal"></canvas></div>
+        <div class="card" style="flex:1;min-width:320px"><canvas id="chPVSRMensal"></canvas></div>
+        <div class="card" style="flex:1;min-width:320px"><canvas id="chResAcum"></canvas></div>
+        <div class="card" style="flex:1;min-width:320px"><canvas id="chLucroMensal"></canvas></div>
+      </div>
       <div class="foot"><span id="infoMeses">—</span><span class="mono" id="now"></span></div>
+    </section>
+
+    <!-- === Aba Mensal === -->
+    <section id="tab-mensal" class="card" style="display:none">
+      <div class="row" style="gap:8px;align-items:center">
+        <label for="selMes">Mês/Ano</label>
+        <select id="selMes"></select>
+      </div>
+      <section class="kpis" style="margin-top:12px">
+        <div class="card kpi"><div class="title">Resultado</div><div class="value" id="kResM">—</div><div class="hint">Receber − Pagar</div></div>
+        <div class="card kpi"><div class="title">Contas a pagar</div><div class="value" id="kPagarM">—</div><div class="hint">Conforme base</div></div>
+        <div class="card kpi"><div class="title">Contas a receber</div><div class="value" id="kReceberM">—</div><div class="hint">Conforme base</div></div>
+        <div class="card kpi"><div class="title">Lucratividade (%)</div><div class="value" id="kLucroM">—</div><div class="hint">Resultado/Receber</div></div>
+      </section>
+      <div class="row" style="margin-top:12px"><h3 style="margin:0">A Receber (mês)</h3><span class="pill" id="recMensalStats">—</span></div>
+      <div id="tblMensalRec"></div>
+      <div class="row" style="margin-top:16px"><h3 style="margin:0">A Pagar (mês)</h3><span class="pill" id="pagMensalStats">—</span></div>
+      <div id="tblMensalPag"></div>
     </section>
 
     <section id="tab-receber" class="card" style="display:none">
@@ -190,7 +220,44 @@
       <div class="row"><h3 style="margin:0">Detalhamento</h3><span class="pill" id="detStats">—</span></div>
       <div id="tblDetalhe"></div>
     </section>
+
+    <!-- === Relatório de Caixa === -->
+    <section id="tab-relcaixa" class="card" style="display:none">
+      <div class="row" style="align-items:center;gap:12px">
+        <h3 style="margin:0">Relatório (Caixa)</h3>
+        <div class="right" style="display:flex;align-items:center;gap:6px">
+          <label for="saldoInicial">Saldo inicial (R$)</label>
+          <input id="saldoInicial" type="number" value="0" step="0.01" style="width:120px" />
+        </div>
+      </div>
+      <div id="tblRelCaixa"></div>
+      <div class="foot"><span>Relatório sempre considera base Pagamento (regime de caixa).</span></div>
+    </section>
+
+    <!-- === Diagnóstico === -->
+    <section id="tab-diag" class="card" style="display:none">
+      <h3 style="margin:0">Diagnóstico</h3>
+      <section class="kpis" style="margin-top:12px">
+        <div class="card kpi"><div class="title">Linhas sem data na base selecionada</div><div class="value" id="dSemData">0</div><div class="hint">verificar lançamento no ERP</div></div>
+        <div class="card kpi"><div class="title">DOC desconhecido</div><div class="value" id="dDoc">0</div><div class="hint">corrigir tipo de doc</div></div>
+        <div class="card kpi"><div class="title">SIT desconhecida</div><div class="value" id="dSit">0</div><div class="hint">ajustar status</div></div>
+        <div class="card kpi"><div class="title">Valores negativos/zerados</div><div class="value" id="dVal">0</div><div class="hint">rever valores</div></div>
+        <div class="card kpi"><div class="title">Possíveis duplicidades</div><div class="value" id="dDup">0</div><div class="hint">evitar lançamentos repetidos</div></div>
+      </section>
+      <div class="row" style="flex-direction:column;gap:12px;margin-top:12px">
+        <div id="diagSemData"></div>
+        <div id="diagDoc"></div>
+        <div id="diagSit"></div>
+        <div id="diagVal"></div>
+        <div id="diagDup"></div>
+      </div>
+    </section>
   </main>
+
+  <!-- === Modal de linha === -->
+  <div id="lineModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);align-items:center;justify-content:center;z-index:30">
+    <div id="lineModalContent" style="background:var(--card);border:1px solid var(--soft);border-radius:14px;padding:16px;max-width:420px;width:90%;max-height:90%;overflow:auto"></div>
+  </div>
 
 <script>
 // ====== Helpers ======
@@ -294,11 +361,19 @@ function makeTable(headers, rows, opts={}){
     html += `<th data-idx="${idx}" class="sortable">${h}</th>`;
   });
   html += '</tr></thead><tbody>';
-  rows.forEach(r=>{
-    html += '<tr>' + headers.map(h=>`<td>${r[h]??''}</td>`).join('') + '</tr>';
+  rows.forEach((r,idx)=>{
+    html += `<tr data-idx="${idx}">` + headers.map(h=>`<td>${r[h]??''}</td>`).join('') + '</tr>';
   });
   html += '</tbody></table>';
   container.innerHTML = html;
+  if(opts.onRowClick){
+    container.querySelector('tbody').addEventListener('click', (e)=>{
+      const tr = e.target.closest('tr');
+      if(!tr) return;
+      const i = +tr.getAttribute('data-idx');
+      opts.onRowClick(rows[i], i, tr);
+    });
+  }
   return container;
 }
 
@@ -308,9 +383,197 @@ function groupBy(arr, keyFn){
   return m;
 }
 
+// === MiniChart ===
+const MiniChart = (()=>{
+  function create(canvas){
+    const ctx = canvas.getContext('2d');
+    const tip = document.createElement('div');
+    tip.style.position='fixed'; tip.style.background='var(--card)'; tip.style.border='1px solid var(--soft)';
+    tip.style.padding='4px 8px'; tip.style.fontSize='11px'; tip.style.borderRadius='6px'; tip.style.pointerEvents='none'; tip.style.display='none';
+    document.body.appendChild(tip);
+    let cfg=null;
+    function draw(){
+      if(!cfg){ ctx.clearRect(0,0,canvas.width,canvas.height); return; }
+      const w=canvas.clientWidth, h=canvas.clientHeight; canvas.width=w; canvas.height=h;
+      ctx.clearRect(0,0,w,h);
+      const padding=20; const innerW=w-padding*2; const innerH=h-padding*2;
+      const labels=cfg.labels; const series=cfg.series; const max=Math.max(1,...series.flatMap(s=>s.data.map(v=>Math.abs(v))));
+      const step=innerW/labels.length;
+      if(cfg.type==='bar'){
+        series.forEach((s,si)=>{
+          const bw=step/series.length*0.8; const off=step/series.length;
+          ctx.fillStyle=s.color||'#f26722';
+          s.data.forEach((v,i)=>{
+            const x=padding + i*step + off*si + (off-bw)/2;
+            const y=h-padding - (v/max)*innerH;
+            const bh=(v/max)*innerH;
+            ctx.fillRect(x,y,bw,bh);
+          });
+        });
+      } else if(cfg.type==='line'){
+        series.forEach(s=>{
+          ctx.strokeStyle=s.color||'#f26722'; ctx.beginPath();
+          s.data.forEach((v,i)=>{
+            const x=padding+i*step+step/2; const y=h-padding-(v/max)*innerH;
+            if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+          });
+          ctx.stroke();
+          ctx.fillStyle=s.color||'#f26722';
+          s.data.forEach((v,i)=>{
+            const x=padding+i*step+step/2; const y=h-padding-(v/max)*innerH;
+            ctx.beginPath(); ctx.arc(x,y,3,0,Math.PI*2); ctx.fill();
+          });
+        });
+      }
+      ctx.strokeStyle='#333'; ctx.beginPath(); ctx.moveTo(padding,h-padding); ctx.lineTo(w-padding,h-padding); ctx.stroke();
+    }
+    canvas.addEventListener('mousemove', (e)=>{
+      if(!cfg){ return; }
+      const rect=canvas.getBoundingClientRect();
+      const step=(rect.width-40)/cfg.labels.length;
+      const idx=Math.floor((e.clientX-rect.left-20)/step);
+      if(idx>=0 && idx<cfg.labels.length){
+        tip.style.display='block';
+        const vals = cfg.series.map(s=>`${s.label}: ${s.data[idx].toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})}`).join('\n');
+        tip.textContent=`${cfg.labels[idx]}\n${vals}`;
+        tip.style.left=(e.clientX+10)+'px'; tip.style.top=(e.clientY+10)+'px';
+      } else tip.style.display='none';
+    });
+    canvas.addEventListener('mouseleave', ()=> tip.style.display='none');
+    return { set(c){ cfg=c; draw(); } };
+  }
+  return {create};
+})();
+
+// === Séries mensais ===
+function computeMonthlySeries(rows, baseKey){
+  const map = new Map();
+  rows.forEach(r=>{
+    const m = r[baseKey];
+    if(!m) return;
+    const o = map.get(m) || {recPrev:0,pagPrev:0,recReal:0,pagReal:0};
+    if(r.tipo==='Receber'){ o.recPrev += r.valorPrev||0; o.recReal += r.valorReal||0; }
+    else if(r.tipo==='Pagar'){ o.pagPrev += r.valorPrev||0; o.pagReal += r.valorReal||0; }
+    map.set(m,o);
+  });
+  return map;
+}
+
+function seriesResultadoPorMes(monthMap){
+  const base = elBase.value;
+  const meses = Array.from(monthMap.keys()).sort();
+  const vals = meses.map(m=>{
+    const o = monthMap.get(m);
+    const rec = base==='pag'? o.recReal : o.recPrev;
+    const pag = base==='pag'? o.pagReal : o.pagPrev;
+    return rec - pag;
+  });
+  return {labels:meses, values:vals};
+}
+
+function seriesPagarReceberPorMes(monthMap){
+  const base = elBase.value;
+  const meses = Array.from(monthMap.keys()).sort();
+  const rec = meses.map(m=> base==='pag'? monthMap.get(m).recReal : monthMap.get(m).recPrev);
+  const pag = meses.map(m=> base==='pag'? monthMap.get(m).pagReal : monthMap.get(m).pagPrev);
+  return {labels:meses, rec, pag};
+}
+
+function seriesAcumulado(resSerie){
+  let s=0; const vals = resSerie.values.map(v=> (s+=v));
+  return {labels:resSerie.labels, values:vals};
+}
+
+function seriesLucratividadeMes(recSerie, resSerie){
+  const vals = resSerie.labels.map((_,i)=> recSerie.rec[i]>0? (resSerie.values[i]/recSerie.rec[i]*100):0);
+  return {labels:resSerie.labels, values:vals};
+}
+
+// === Modal ===
+function openLineModal(r){
+  const c=document.getElementById('lineModalContent');
+  const rows=[
+    ['Tipo', r.tipo],
+    ['Doc', r.docCode?`${r.docCode} – ${r.docLabel}`:''],
+    ['Situação', r.sitLabel],
+    ['Emissão', fmtDateBR(r.emissao)],
+    ['Vencimento', fmtDateBR(r.venc)],
+    ['Pagamento', fmtDateBR(r.pag)],
+    ['Contraparte', r.contraparte],
+    ['Descrição', r.desc],
+    ['Plano', r.plano],
+    ['Centro', r.centro],
+    ['Valor Previsto', fmtBRL(r.valorPrev||0)],
+    ['Valor Realizado', r.valorReal!=null? fmtBRL(r.valorReal):''],
+    ['Atraso (dias)', r.diasAtraso!=null? r.diasAtraso: '']
+  ];
+  let html='';
+  rows.forEach(([k,v])=>{ html+=`<div><b>${k}:</b> ${v||''}</div>`; });
+  html+=`<div class="row" style="justify-content:flex-end;margin-top:12px"><button id="modalCopy" class="btn secondary">Copiar</button><button id="modalClose" class="btn secondary">Fechar</button></div>`;
+  c.innerHTML=html;
+  document.getElementById('modalCopy').onclick=()=>{
+    const txt = rows.map(([k,v])=>`${k}: ${v||''}`).join('\n');
+    navigator.clipboard.writeText(txt);
+  };
+  document.getElementById('modalClose').onclick=closeLineModal;
+  const m=document.getElementById('lineModal');
+  m.style.display='flex';
+}
+
+function closeLineModal(){ document.getElementById('lineModal').style.display='none'; }
+
+// === Relatório de Caixa ===
+function computeCashflowTable(rows, openingBalance){
+  const map = computeMonthlySeries(rows, 'mes_pag');
+  const meses = Array.from(map.keys()).sort();
+  const headers = ['Categoria', ...meses];
+  const saldoInicial = {Categoria:'Saldo inicial do mês'};
+  const receita = {Categoria:'Receita (realizada)'};
+  const despesa = {Categoria:'Despesa (realizada)'};
+  const resultado = {Categoria:'Resultado (R$)'};
+  const acumulado = {Categoria:'Acumulado (R$)'};
+  const lucro = {Categoria:'Lucro (%)'};
+  let saldo = openingBalance||0;
+  meses.forEach(m=>{
+    const o = map.get(m)||{recReal:0,pagReal:0};
+    saldoInicial[m]=fmtBRL(saldo);
+    receita[m]=fmtBRL(o.recReal);
+    despesa[m]=fmtBRL(o.pagReal);
+    const res = o.recReal - o.pagReal;
+    resultado[m]=fmtBRL(res);
+    saldo += res;
+    acumulado[m]=fmtBRL(saldo);
+    lucro[m]= o.recReal>0? (res/o.recReal*100).toFixed(2)+'%':'—';
+  });
+  return {headers, rows:[saldoInicial, receita, despesa, resultado, acumulado, lucro]};
+}
+
+// === Diagnóstico ===
+function computeDiagnostics(rows){
+  const base = elBase.value;
+  const baseDate = (r)=> base==='pag'? r.pag : base==='emiss'? r.emissao : r.venc;
+  const semDataBase = rows.filter(r=> !baseDate(r));
+  const docDesconhecido = rows.filter(r=> !DOC_MAP[r.docCode]);
+  const sitDesconhecida = rows.filter(r=> !SIT_MAP[r.sitCode]);
+  const valorAnomalo = rows.filter(r=> (r.valorPrev||0)<=0 || (r.valorReal!=null && r.valorReal<=0));
+  const g = groupBy(rows, r=> `${r.docCode}|${r.contraparte}|${baseDate(r)?fmtDate(baseDate(r)):'?'}|${base==='pag'? (r.valorReal||0):(r.valorPrev||0)}`);
+  const possiveisDuplicidades = Array.from(g.values()).filter(v=>v.length>1).flat();
+  return {
+    semDataBase, docDesconhecido, sitDesconhecida, valorAnomalo, possiveisDuplicidades,
+    totals:{
+      semDataBase: semDataBase.length,
+      docDesconhecido: docDesconhecido.length,
+      sitDesconhecida: sitDesconhecida.length,
+      valorAnomalo: valorAnomalo.length,
+      possiveisDuplicidades: possiveisDuplicidades.length
+    }
+  };
+}
+
 // ====== State ======
 let RAW={headers:[], data:[]};
 let REG=[]; // registros normalizados
+let LAST_DET=null, LAST_CF=null;
 
 // ====== Normalização ======
 function toRecord(row, headers){
@@ -430,7 +693,7 @@ function makeMesesResumo(rows, base){
 
 function makeReceberTable(rows){
   const headers = ["Vencimento","Devedor","Doc.","Situação","Emissão","Pagamento","Valor Previsto","Valor Realizado","Atraso (dias)","Descrição","Plano","Centro"];
-  const out = rows.filter(r=>r.tipo==='Receber').map(r=>({
+  const orig=[]; const out = rows.filter(r=>r.tipo==='Receber').map(r=>{ orig.push(r); return {
     "Vencimento": r.venc? fmtDateBR(r.venc):'',
     "Devedor": r.contraparte||'',
     "Doc.": r.docCode? `${r.docCode} – ${r.docLabel}`:'',
@@ -443,13 +706,13 @@ function makeReceberTable(rows){
     "Descrição": r.desc||'',
     "Plano": r.plano||'',
     "Centro": r.centro||''
-  }));
-  return {headers, rows: out};
+  }; });
+  return {headers, rows: out, orig};
 }
 
 function makePagarTable(rows){
   const headers = ["Vencimento","Beneficiado","Doc.","Situação","Emissão","Pagamento","Valor Previsto","Valor Realizado","Atraso (dias)","Descrição","Plano","Centro"];
-  const out = rows.filter(r=>r.tipo==='Pagar').map(r=>({
+  const orig=[]; const out = rows.filter(r=>r.tipo==='Pagar').map(r=>{ orig.push(r); return {
     "Vencimento": r.venc? fmtDateBR(r.venc):'',
     "Beneficiado": r.contraparte||'',
     "Doc.": r.docCode? `${r.docCode} – ${r.docLabel}`:'',
@@ -462,8 +725,8 @@ function makePagarTable(rows){
     "Descrição": r.desc||'',
     "Plano": r.plano||'',
     "Centro": r.centro||''
-  }));
-  return {headers, rows: out};
+  }; });
+  return {headers, rows: out, orig};
 }
 
 function makeAging(rows){
@@ -547,7 +810,7 @@ function porCentro(rows){
 
 function detalhe(rows){
   const headers = ["Tipo","Doc.","Situação","Emissão","Vencimento","Pagamento","Contraparte","Descrição","Plano","Centro","Valor Previsto","Valor Realizado","Atraso (dias)"];
-  const out = rows.map(r=>({
+  const orig=[]; const out = rows.map(r=>{ orig.push(r); return {
     "Tipo": r.tipo,
     "Doc.": r.docCode? `${r.docCode} – ${r.docLabel}`:'',
     "Situação": r.sitLabel,
@@ -561,8 +824,8 @@ function detalhe(rows){
     "Valor Previsto": fmtBRL(r.valorPrev||0),
     "Valor Realizado": r.valorReal!=null? fmtBRL(r.valorReal):'',
     "Atraso (dias)": r.diasAtraso!=null? r.diasAtraso: ''
-  }));
-  return {headers, rows: out};
+  }; });
+  return {headers, rows: out, orig};
 }
 
 function exportCSV(headers, rows){
@@ -589,11 +852,21 @@ const elDoc = document.getElementById('fDoc');
 const elBusca = document.getElementById('fBusca');
 const elStatus = document.getElementById('status');
 const elNow = document.getElementById('now');
+const kRes = document.getElementById('kResultado');
+const kPag = document.getElementById('kPagar');
+const kRec = document.getElementById('kReceber');
+const kLuc = document.getElementById('kLucratividade');
+const kResM = document.getElementById('kResM');
+const kPagM = document.getElementById('kPagarM');
+const kRecM = document.getElementById('kReceberM');
+const kLucM = document.getElementById('kLucroM');
+const selMes = document.getElementById('selMes');
+const saldoIni = document.getElementById('saldoInicial');
 
-const kPrev = document.getElementById('kPrev');
-const kReal = document.getElementById('kReal');
-const kAR = document.getElementById('kARAberto');
-const kAP = document.getElementById('kAPAberto');
+const chResMensal = MiniChart.create(document.getElementById('chResMensal'));
+const chPVSRMensal = MiniChart.create(document.getElementById('chPVSRMensal'));
+const chResAcum = MiniChart.create(document.getElementById('chResAcum'));
+const chLucroMensal = MiniChart.create(document.getElementById('chLucroMensal'));
 
 function setStatus(msg, ok){
   elStatus.textContent = msg;
@@ -602,35 +875,43 @@ function setStatus(msg, ok){
 
 function refresh(){
   if(!REG.length){ setStatus('Aguardando CSV…'); return; }
-  // datas
   const di = elIni.value? new Date(elIni.value) : null; if(di) di.setHours(0,0,0,0);
   const df = elFim.value? new Date(elFim.value) : null; if(df) df.setHours(23,59,59,999);
   const base = elBase.value; const tipo = elTipo.value; const sit = elSit.value; const doc = elDoc.value; const busca = elBusca.value.trim();
 
   const rows = applyFilters(base, di, df, tipo, sit, doc, busca);
+  const baseKey = base==='pag'? 'mes_pag' : (base==='emiss'? 'mes_emiss' : 'mes_venc');
+  const monthMap = computeMonthlySeries(rows, baseKey);
+  const prSeries = seriesPagarReceberPorMes(monthMap);
+  const resSeries = seriesResultadoPorMes(monthMap);
+  const acumSeries = seriesAcumulado(resSeries);
+  const lucroSeries = seriesLucratividadeMes(prSeries, resSeries);
 
-  // KPIs
-  const prevSigned = sum(rows, r=> (r.valorPrev||0) * (r.tipo==='Receber'? 1 : -1));
-  const realSigned = sum(rows, r=> (r.valorReal||0) * (r.tipo==='Receber'? 1 : -1));
-  const aRecAberto = sum(REG.filter(r=> r.tipo==='Receber' && (r.sitLabel==='Aberto'||r.sitLabel==='Atrasado')), r=> r.valorPrev||0);
-  const aPagAberto = sum(REG.filter(r=> r.tipo==='Pagar' && (r.sitLabel==='Aberto'||r.sitLabel==='Atrasado')), r=> r.valorPrev||0);
+  const totRec = prSeries.rec.reduce((a,b)=>a+b,0);
+  const totPag = prSeries.pag.reduce((a,b)=>a+b,0);
+  const resultado = totRec - totPag;
+  const lucr = totRec>0? resultado/totRec*100 : null;
 
-  kPrev.textContent = fmtBRL(prevSigned);
-  kReal.textContent = fmtBRL(realSigned);
-  kAR.textContent = fmtBRL(aRecAberto);
-  kAP.textContent = fmtBRL(aPagAberto);
+  kRes.textContent = fmtBRL(resultado);
+  kPag.textContent = fmtBRL(totPag);
+  kRec.textContent = fmtBRL(totRec);
+  kLuc.textContent = lucr!=null? lucr.toFixed(2)+'%' : '—';
 
-  // Tabelas
+  chResMensal.set({type:'bar', labels:resSeries.labels, series:[{label:'Resultado', data:resSeries.values, color:'#f26722'}]});
+  chPVSRMensal.set({type:'bar', labels:prSeries.labels, series:[{label:'Receber', data:prSeries.rec, color:'#98ecb2'},{label:'Pagar', data:prSeries.pag, color:'#ff9b9b'}]});
+  chResAcum.set({type:'line', labels:acumSeries.labels, series:[{label:'Acumulado', data:acumSeries.values, color:'#f26722'}]});
+  chLucroMensal.set({type:'line', labels:lucroSeries.labels, series:[{label:'Lucratividade', data:lucroSeries.values, color:'#98ecb2'}]});
+
   const meses = makeMesesResumo(rows, base);
   renderTable('tblMeses', Object.keys(meses[0]||{"Mês":"Mês"}), meses);
   document.getElementById('infoMeses').textContent = `${rows.length||0} lançamentos no período`;
 
   const rec = makeReceberTable(rows);
-  renderTable('tblReceber', rec.headers, rec.rows);
+  renderTable('tblReceber', rec.headers, rec.rows, {onRowClick:(r,i)=> openLineModal(rec.orig[i])});
   document.getElementById('recStats').textContent = `${rec.rows.length||0} linhas`;
 
   const pag = makePagarTable(rows);
-  renderTable('tblPagar', pag.headers, pag.rows);
+  renderTable('tblPagar', pag.headers, pag.rows, {onRowClick:(r,i)=> openLineModal(pag.orig[i])});
   document.getElementById('pagStats').textContent = `${pag.rows.length||0} linhas`;
 
   const ag = makeAging(rows);
@@ -644,10 +925,61 @@ function refresh(){
   document.getElementById('planStats').textContent = `${pl.rows.length} planos • ${ct.rows.length} centros`;
 
   const det = detalhe(rows);
-  renderTable('tblDetalhe', det.headers, det.rows);
+  renderTable('tblDetalhe', det.headers, det.rows, {onRowClick:(r,i)=> openLineModal(det.orig[i])});
   document.getElementById('detStats').textContent = `${det.rows.length||0} linhas`;
+  LAST_DET = det;
 
-  setStatus('Ok');
+  // Mensal
+  const mesesOpt = prSeries.labels;
+  selMes.innerHTML = mesesOpt.map(m=>`<option value="${m}">${m}</option>`).join('');
+  if(mesesOpt.length && !mesesOpt.includes(selMes.value)) selMes.value = mesesOpt[mesesOpt.length-1];
+  const mesSel = selMes.value;
+  const rowsMes = rows.filter(r=> r[baseKey]===mesSel);
+  const mm = computeMonthlySeries(rowsMes, baseKey);
+  const prM = seriesPagarReceberPorMes(mm);
+  const resM = seriesResultadoPorMes(mm);
+  const totRecM = prM.rec.reduce((a,b)=>a+b,0);
+  const totPagM = prM.pag.reduce((a,b)=>a+b,0);
+  const resValM = totRecM - totPagM;
+  const lucM = totRecM>0? resValM/totRecM*100 : null;
+  kResM.textContent = fmtBRL(resValM);
+  kPagM.textContent = fmtBRL(totPagM);
+  kRecM.textContent = fmtBRL(totRecM);
+  kLucM.textContent = lucM!=null? lucM.toFixed(2)+'%' : '—';
+  const recM = makeReceberTable(rowsMes); renderTable('tblMensalRec', recM.headers, recM.rows, {onRowClick:(r,i)=> openLineModal(recM.orig[i])}); document.getElementById('recMensalStats').textContent=`${recM.rows.length||0} linhas`;
+  const pagM = makePagarTable(rowsMes); renderTable('tblMensalPag', pagM.headers, pagM.rows, {onRowClick:(r,i)=> openLineModal(pagM.orig[i])}); document.getElementById('pagMensalStats').textContent=`${pagM.rows.length||0} linhas`;
+
+  // Relatório de Caixa
+  const rowsCaixa = applyFilters('pag', di, df, tipo, sit, doc, busca);
+  const cf = computeCashflowTable(rowsCaixa, parseFloat(saldoIni.value)||0);
+  renderTable('tblRelCaixa', cf.headers, cf.rows);
+  LAST_CF = cf;
+
+  // Diagnóstico
+  const diagRows = REG.filter(r=>{
+    let dBase = base==='pag'? r.pag : base==='emiss'? r.emissao : r.venc;
+    if(di && dBase && dBase<di) return false;
+    if(df && dBase && dBase>df) return false;
+    if(tipo && r.tipo!==tipo) return false;
+    if(sit && r.sitLabel!==sit) return false;
+    if(doc && r.docCode!==doc) return false;
+    if(busca){ const q=norm(busca); const hay=[r.contraparte,r.desc,r.plano,r.centro].map(norm).join(' '); if(!hay.includes(q)) return false; }
+    return true;
+  });
+  const diag = computeDiagnostics(diagRows);
+  document.getElementById('dSemData').textContent = diag.totals.semDataBase;
+  document.getElementById('dDoc').textContent = diag.totals.docDesconhecido;
+  document.getElementById('dSit').textContent = diag.totals.sitDesconhecida;
+  document.getElementById('dVal').textContent = diag.totals.valorAnomalo;
+  document.getElementById('dDup').textContent = diag.totals.possiveisDuplicidades;
+  const diagSample = (arr)=> arr.slice(0,5).map(r=>({Tipo:r.tipo, Doc:r.docCode, Contraparte:r.contraparte, Valor:fmtBRL((r.valorReal!=null?r.valorReal:r.valorPrev)||0)}));
+  renderTable('diagSemData', ['Tipo','Doc','Contraparte','Valor'], diagSample(diag.semDataBase));
+  renderTable('diagDoc', ['Tipo','Doc','Contraparte','Valor'], diagSample(diag.docDesconhecido));
+  renderTable('diagSit', ['Tipo','Doc','Contraparte','Valor'], diagSample(diag.sitDesconhecida));
+  renderTable('diagVal', ['Tipo','Doc','Contraparte','Valor'], diagSample(diag.valorAnomalo));
+  renderTable('diagDup', ['Tipo','Doc','Contraparte','Valor'], diagSample(diag.possiveisDuplicidades));
+
+  setStatus('Ok', true);
 }
 
 elFile.addEventListener('change', async (e)=>{
@@ -670,15 +1002,24 @@ elFile.addEventListener('change', async (e)=>{
   elDoc.addEventListener(ev, refresh);
   elBusca.addEventListener(ev, ()=>{ clearTimeout(window.___t); window.___t=setTimeout(refresh,200); });
 });
+selMes.addEventListener('change', refresh);
+saldoIni.addEventListener('change', refresh);
+document.getElementById('lineModal').addEventListener('click', e=>{ if(e.target.id==='lineModal') closeLineModal(); });
 
 // Export atual
- document.getElementById('btnExport').addEventListener('click', ()=>{
-   const di = elIni.value? new Date(elIni.value) : null; if(di) di.setHours(0,0,0,0);
-   const df = elFim.value? new Date(elFim.value) : null; if(df) df.setHours(23,59,59,999);
-   const base = elBase.value; const tipo = elTipo.value; const sit = elSit.value; const doc = elDoc.value; const busca = elBusca.value.trim();
-   const rows = applyFilters(base, di, df, tipo, sit, doc, busca);
-   const det = detalhe(rows);
-   const csv = exportCSV(det.headers, det.rows);
+document.getElementById('btnExport').addEventListener('click', ()=>{
+   const active = document.querySelector('.tab.active').dataset.tab;
+   let csv='';
+   if(active==='relcaixa' && LAST_CF){
+     csv = exportCSV(LAST_CF.headers, LAST_CF.rows);
+   } else {
+     const di = elIni.value? new Date(elIni.value) : null; if(di) di.setHours(0,0,0,0);
+     const df = elFim.value? new Date(elFim.value) : null; if(df) df.setHours(23,59,59,999);
+     const base = elBase.value; const tipo = elTipo.value; const sit = elSit.value; const doc = elDoc.value; const busca = elBusca.value.trim();
+     const rows = applyFilters(base, di, df, tipo, sit, doc, busca);
+     const det = detalhe(rows);
+     csv = exportCSV(det.headers, det.rows);
+   }
    const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
    const url = URL.createObjectURL(blob);
    const a = document.createElement('a');
@@ -690,11 +1031,14 @@ elFile.addEventListener('change', async (e)=>{
 const tabsEl = document.getElementById('tabs');
 const sections = {
   geral: document.getElementById('tab-geral'),
+  mensal: document.getElementById('tab-mensal'),
   receber: document.getElementById('tab-receber'),
   pagar: document.getElementById('tab-pagar'),
   aging: document.getElementById('tab-aging'),
   planos: document.getElementById('tab-planos'),
-  detalhe: document.getElementById('tab-detalhe')
+  detalhe: document.getElementById('tab-detalhe'),
+  relcaixa: document.getElementById('tab-relcaixa'),
+  diag: document.getElementById('tab-diag')
 };
 
 tabsEl.addEventListener('click', (e)=>{
