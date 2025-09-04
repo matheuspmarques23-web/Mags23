@@ -59,8 +59,15 @@
   .nowrap{white-space:nowrap}
   
   .foot{margin-top:10px;display:flex;justify-content:space-between;align-items:center;color:var(--muted);font-size:12px}
-  #lineModal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);align-items:center;justify-content:center;z-index:30}
-  #lineModalContent button{margin-top:8px}
+  /* === MODAL === */
+  .modal{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:30}
+  .modal.hidden{display:none}
+  .modal-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.6)}
+  .modal-card{position:relative;background:var(--card);border:1px solid var(--soft);border-radius:14px;max-width:640px;width:90%;max-height:90%;overflow:auto;padding:16px;display:flex;flex-direction:column}
+  .modal-header,.modal-footer{display:flex;align-items:center;justify-content:space-between;gap:12px}
+  .modal-body{flex:1;overflow:auto;padding:8px 0}
+  .icon-btn{background:none;border:none;color:var(--text);font-size:20px;cursor:pointer}
+  .modal-card button{margin-top:0}
 </style>
 </head>
 <body>
@@ -144,7 +151,7 @@
       <button class="tab" data-tab="mensal">Mensal</button>
       <button class="tab" data-tab="receber">Receber</button>
       <button class="tab" data-tab="pagar">Pagar</button>
-      <button class="tab" data-tab="aging">Aging & Risco</button>
+      <!-- === REMOVER AGING -->
       <button class="tab" data-tab="planos">Planos & Centros</button>
       <button class="tab" data-tab="detalhe">Detalhes</button>
       <button class="tab" data-tab="relcaixa">Relatório (Caixa)</button>
@@ -174,8 +181,8 @@
     <!-- === Aba Mensal === -->
     <section id="tab-mensal" class="card" style="display:none">
       <div class="row" style="gap:8px;align-items:center">
-        <label for="selMes">Mês/Ano</label>
-        <select id="selMes"></select>
+        <label for="mensalMesSelect">Mês/Ano</label>
+        <select id="mensalMesSelect"></select>
       </div>
       <section class="kpis" style="margin-top:12px">
         <div class="card kpi"><div class="title">Resultado</div><div class="value" id="kResM">—</div><div class="hint">Receber − Pagar</div></div>
@@ -199,15 +206,7 @@
       <div id="tblPagar"></div>
     </section>
 
-    <section id="tab-aging" class="card" style="display:none">
-      <div class="row"><h3 style="margin:0">Aging – Títulos em Aberto (faixas de atraso)</h3><span class="pill" id="agingStats">—</span></div>
-      <div id="tblAging"></div>
-      <h4>Top Devedores / Fornecedores (em aberto)</h4>
-      <div class="row" style="gap:12px">
-        <div class="grow" id="tblTopDev"></div>
-        <div class="grow" id="tblTopFor"></div>
-      </div>
-    </section>
+    <!-- === REMOVER AGING -->
 
     <section id="tab-planos" class="card" style="display:none">
       <div class="row"><h3 style="margin:0">Planos de Contas</h3><span class="pill" id="planStats">—</span></div>
@@ -254,9 +253,20 @@
     </section>
   </main>
 
-  <!-- === Modal de linha === -->
-  <div id="lineModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);align-items:center;justify-content:center;z-index:30">
-    <div id="lineModalContent" style="background:var(--card);border:1px solid var(--soft);border-radius:14px;padding:16px;max-width:420px;width:90%;max-height:90%;overflow:auto"></div>
+  <!-- === MODAL === -->
+  <div id="rowModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="rowModalTitle">
+    <div class="modal-backdrop" data-close></div>
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="rowModalTitle">Detalhe do Lançamento</h3>
+        <button class="icon-btn" id="rowModalClose" aria-label="Fechar">×</button>
+      </div>
+      <div class="modal-body" id="rowModalBody"></div>
+      <div class="modal-footer">
+        <button id="btnCopyModal">Copiar</button>
+        <button id="btnCloseModal">Fechar</button>
+      </div>
+    </div>
   </div>
 
 <script>
@@ -265,6 +275,8 @@ const DOC_MAP = { CC:"Cartão de Crédito", CD:"Cartão de Débito", PIX:"Pix", 
 const SIT_MAP = { L:"Liquidado", A:"Aberto" };
 
 const fmtBRL = (n)=> isFinite(n) ? n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}) : '—';
+const fmtCurrencyBR = fmtBRL; // === CHARTS
+const fmtPercent = (n)=> isFinite(n)? n.toFixed(2)+'%':'—';
 const fmtInt = (n)=> isFinite(n) ? n.toLocaleString('pt-BR') : '—';
 const pad2 = (x)=> String(x).padStart(2,'0');
 const fmtDate = (d)=> d? `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}` : '';
@@ -352,9 +364,9 @@ function headerIndex(headers, label){
   return -1;
 }
 
-function makeTable(headers, rows, opts={}){
+function makeTable(headers, rows){
   const container = document.createElement('div');
-  container.style.maxHeight = opts.maxHeight || '420px';
+  container.style.maxHeight = '420px';
   container.style.overflow = 'auto';
   let html = '<table><thead><tr>';
   headers.forEach((h,idx)=>{
@@ -362,18 +374,10 @@ function makeTable(headers, rows, opts={}){
   });
   html += '</tr></thead><tbody>';
   rows.forEach((r,idx)=>{
-    html += `<tr data-idx="${idx}">` + headers.map(h=>`<td>${r[h]??''}</td>`).join('') + '</tr>';
+    html += `<tr data-row-index="${idx}">` + headers.map(h=>`<td>${r[h]??''}</td>`).join('') + '</tr>';
   });
   html += '</tbody></table>';
   container.innerHTML = html;
-  if(opts.onRowClick){
-    container.querySelector('tbody').addEventListener('click', (e)=>{
-      const tr = e.target.closest('tr');
-      if(!tr) return;
-      const i = +tr.getAttribute('data-idx');
-      opts.onRowClick(rows[i], i, tr);
-    });
-  }
   return container;
 }
 
@@ -383,63 +387,65 @@ function groupBy(arr, keyFn){
   return m;
 }
 
-// === MiniChart ===
+// === CHARTS
 const MiniChart = (()=>{
+  function niceScale(max){
+    const pow = Math.pow(10, Math.floor(Math.log10(Math.max(1,max))));
+    const step = pow;
+    const ticks=[];
+    for(let v=0; v<=max; v+=step) ticks.push(v);
+    if(ticks[ticks.length-1]<max) ticks.push(max);
+    return {max:ticks[ticks.length-1], ticks};
+  }
+  function drawAxes(ctx,w,h,padding,ticks,labels,fmtY){
+    ctx.strokeStyle='#444';
+    ctx.beginPath(); ctx.moveTo(padding,padding); ctx.lineTo(padding,h-padding); ctx.lineTo(w-padding,h-padding); ctx.stroke();
+    const innerH=h-padding*2; const innerW=w-padding*2; const stepX=innerW/labels.length;
+    ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='var(--muted)';
+    labels.forEach((lab,i)=>{ const x=padding+i*stepX+stepX/2; ctx.fillText(lab,x,h-padding+4); });
+    ctx.textAlign='right'; ctx.textBaseline='middle';
+    ticks.forEach(t=>{ const y=h-padding-(t/ticks[ticks.length-1])*innerH; ctx.fillText(fmtY?fmtY(t):t,padding-4,y); ctx.strokeStyle='rgba(255,255,255,0.1)'; ctx.beginPath(); ctx.moveTo(padding,y); ctx.lineTo(w-padding,y); ctx.stroke(); });
+  }
+  function drawLegend(ctx,datasets,legend,hidden){
+    let x=10,y=10; legend.length=0; ctx.font='12px sans-serif'; ctx.textBaseline='middle';
+    datasets.forEach(ds=>{ const w=ctx.measureText(ds.label).width+24; legend.push({x,y,w,label:ds.label,color:ds.color}); ctx.fillStyle=ds.color; ctx.fillRect(x,y-6,12,12); ctx.fillStyle=hidden.has(ds.label)?'var(--muted)':'var(--text)'; ctx.fillText(ds.label,x+18,y); x+=w+10; });
+  }
+  function drawDataLabels(ctx,pts,fmt){
+    ctx.fillStyle='var(--text)'; ctx.font='10px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='bottom';
+    pts.forEach(p=> ctx.fillText(fmt?fmt(p.v):p.v,p.x,p.y-4));
+  }
   function create(canvas){
     const ctx = canvas.getContext('2d');
-    const tip = document.createElement('div');
-    tip.style.position='fixed'; tip.style.background='var(--card)'; tip.style.border='1px solid var(--soft)';
-    tip.style.padding='4px 8px'; tip.style.fontSize='11px'; tip.style.borderRadius='6px'; tip.style.pointerEvents='none'; tip.style.display='none';
-    document.body.appendChild(tip);
-    let cfg=null;
+    const legend=[]; const hidden=new Set(); let cfg=null;
     function draw(){
-      if(!cfg){ ctx.clearRect(0,0,canvas.width,canvas.height); return; }
-      const w=canvas.clientWidth, h=canvas.clientHeight; canvas.width=w; canvas.height=h;
+      const w=canvas.clientWidth, h=canvas.clientHeight; const dpr=window.devicePixelRatio||1; canvas.width=w*dpr; canvas.height=h*dpr; ctx.setTransform(dpr,0,0,dpr,0,0);
       ctx.clearRect(0,0,w,h);
-      const padding=20; const innerW=w-padding*2; const innerH=h-padding*2;
-      const labels=cfg.labels; const series=cfg.series; const max=Math.max(1,...series.flatMap(s=>s.data.map(v=>Math.abs(v))));
-      const step=innerW/labels.length;
+      if(!cfg || !cfg.labels.length){ ctx.fillStyle='var(--muted)'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('Sem dados no período', w/2,h/2); return; }
+      const datasets = cfg.series.filter(s=>!hidden.has(s.label));
+      if(!datasets.length){ ctx.fillStyle='var(--muted)'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('Sem dados no período', w/2,h/2); return; }
+      const padding=30; const innerW=w-padding*2; const innerH=h-padding*2;
+      const max=Math.max(...datasets.flatMap(s=>s.data.map(v=>Math.abs(v))),0);
+      const scale=niceScale(max);
+      drawAxes(ctx,w,h,padding,scale.ticks,cfg.labels, cfg.fmtY);
+      const step=innerW/cfg.labels.length;
       if(cfg.type==='bar'){
-        series.forEach((s,si)=>{
-          const bw=step/series.length*0.8; const off=step/series.length;
-          ctx.fillStyle=s.color||'#f26722';
-          s.data.forEach((v,i)=>{
-            const x=padding + i*step + off*si + (off-bw)/2;
-            const y=h-padding - (v/max)*innerH;
-            const bh=(v/max)*innerH;
-            ctx.fillRect(x,y,bw,bh);
-          });
+        datasets.forEach((s,si)=>{
+          const bw=step/datasets.length*0.8; const off=step/datasets.length; ctx.fillStyle=s.color||'#f26722'; const pts=[];
+          s.data.forEach((v,i)=>{ const x=padding+i*step+off*si+(off-bw)/2; const bh=scale.max? (v/scale.max)*innerH:0; const y=h-padding-bh; ctx.fillRect(x,y,bw,bh); pts.push({x:x+bw/2,y:y,v}); });
+          drawDataLabels(ctx,pts,s.fmt||cfg.fmtY);
         });
       } else if(cfg.type==='line'){
-        series.forEach(s=>{
-          ctx.strokeStyle=s.color||'#f26722'; ctx.beginPath();
-          s.data.forEach((v,i)=>{
-            const x=padding+i*step+step/2; const y=h-padding-(v/max)*innerH;
-            if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
-          });
-          ctx.stroke();
-          ctx.fillStyle=s.color||'#f26722';
-          s.data.forEach((v,i)=>{
-            const x=padding+i*step+step/2; const y=h-padding-(v/max)*innerH;
-            ctx.beginPath(); ctx.arc(x,y,3,0,Math.PI*2); ctx.fill();
-          });
+        datasets.forEach(s=>{
+          ctx.strokeStyle=s.color||'#f26722'; ctx.beginPath(); const pts=[];
+          s.data.forEach((v,i)=>{ const x=padding+i*step+step/2; const y=h-padding-(v/scale.max)*innerH; if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); pts.push({x,y,v}); });
+          ctx.stroke(); ctx.fillStyle=s.color||'#f26722'; pts.forEach(p=>{ ctx.beginPath(); ctx.arc(p.x,p.y,3,0,Math.PI*2); ctx.fill(); });
+          drawDataLabels(ctx,pts,s.fmt||cfg.fmtY);
         });
       }
-      ctx.strokeStyle='#333'; ctx.beginPath(); ctx.moveTo(padding,h-padding); ctx.lineTo(w-padding,h-padding); ctx.stroke();
+      drawLegend(ctx,datasets,legend,hidden);
     }
-    canvas.addEventListener('mousemove', (e)=>{
-      if(!cfg){ return; }
-      const rect=canvas.getBoundingClientRect();
-      const step=(rect.width-40)/cfg.labels.length;
-      const idx=Math.floor((e.clientX-rect.left-20)/step);
-      if(idx>=0 && idx<cfg.labels.length){
-        tip.style.display='block';
-        const vals = cfg.series.map(s=>`${s.label}: ${s.data[idx].toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})}`).join('\n');
-        tip.textContent=`${cfg.labels[idx]}\n${vals}`;
-        tip.style.left=(e.clientX+10)+'px'; tip.style.top=(e.clientY+10)+'px';
-      } else tip.style.display='none';
-    });
-    canvas.addEventListener('mouseleave', ()=> tip.style.display='none');
+    window.addEventListener('resize', draw);
+    canvas.addEventListener('click', (e)=>{ const rect=canvas.getBoundingClientRect(); const x=e.clientX-rect.left; const y=e.clientY-rect.top; const item=legend.find(l=>x>=l.x && x<=l.x+l.w && y>=l.y-10 && y<=l.y+10); if(item){ if(hidden.has(item.label)) hidden.delete(item.label); else hidden.add(item.label); draw(); }});
     return { set(c){ cfg=c; draw(); } };
   }
   return {create};
@@ -489,9 +495,39 @@ function seriesLucratividadeMes(recSerie, resSerie){
   return {labels:resSerie.labels, values:vals};
 }
 
-// === Modal ===
-function openLineModal(r){
-  const c=document.getElementById('lineModalContent');
+// === MENSAL
+function buildMensalOptions(rows, baseKey){
+  const set = new Set();
+  rows.forEach(r=>{ const k = r[baseKey]; if(k) set.add(k); });
+  return Array.from(set).sort().map(m=>({key:m, label:`${m.slice(5,7)}/${m.slice(0,4)}`}));
+}
+
+function renderMensalView(){
+  const base = elBase.value;
+  const baseKey = base==='pag'? 'mes_pag' : (base==='emiss'? 'mes_emiss' : 'mes_venc');
+  const rows = state.rows || [];
+  const rowsMes = rows.filter(r=> r[baseKey]===state.mensalKey);
+  const mm = computeMonthlySeries(rowsMes, baseKey);
+  const prM = seriesPagarReceberPorMes(mm);
+  const resM = seriesResultadoPorMes(mm);
+  const totRecM = prM.rec.reduce((a,b)=>a+b,0);
+  const totPagM = prM.pag.reduce((a,b)=>a+b,0);
+  const resValM = totRecM - totPagM;
+  const lucM = totRecM>0? resValM/totRecM*100 : null;
+  kResM.textContent = fmtBRL(resValM);
+  kPagM.textContent = fmtBRL(totPagM);
+  kRecM.textContent = fmtBRL(totRecM);
+  kLucM.textContent = lucM!=null? lucM.toFixed(2)+'%' : '—';
+  const recM = makeReceberTable(rowsMes);
+  renderTable('tblMensalRec', recM.headers, recM.rows, {onRowClick:(r,i)=> openLineModal(recM.orig[i])});
+  document.getElementById('recMensalStats').textContent=`${recM.rows.length||0} linhas`;
+  const pagM = makePagarTable(rowsMes);
+  renderTable('tblMensalPag', pagM.headers, pagM.rows, {onRowClick:(r,i)=> openLineModal(pagM.orig[i])});
+  document.getElementById('pagMensalStats').textContent=`${pagM.rows.length||0} linhas`;
+}
+
+// === MODAL
+function renderRecordDetailHTML(r){
   const rows=[
     ['Tipo', r.tipo],
     ['Doc', r.docCode?`${r.docCode} – ${r.docLabel}`:''],
@@ -507,20 +543,25 @@ function openLineModal(r){
     ['Valor Realizado', r.valorReal!=null? fmtBRL(r.valorReal):''],
     ['Atraso (dias)', r.diasAtraso!=null? r.diasAtraso: '']
   ];
-  let html='';
-  rows.forEach(([k,v])=>{ html+=`<div><b>${k}:</b> ${v||''}</div>`; });
-  html+=`<div class="row" style="justify-content:flex-end;margin-top:12px"><button id="modalCopy" class="btn secondary">Copiar</button><button id="modalClose" class="btn secondary">Fechar</button></div>`;
-  c.innerHTML=html;
-  document.getElementById('modalCopy').onclick=()=>{
-    const txt = rows.map(([k,v])=>`${k}: ${v||''}`).join('\n');
-    navigator.clipboard.writeText(txt);
-  };
-  document.getElementById('modalClose').onclick=closeLineModal;
-  const m=document.getElementById('lineModal');
-  m.style.display='flex';
+  return rows.map(([k,v])=>`<div><b>${k}:</b> ${v||''}</div>`).join('');
 }
 
-function closeLineModal(){ document.getElementById('lineModal').style.display='none'; }
+function openLineModal(rec){
+  const el=document.getElementById('rowModalBody');
+  el.innerHTML=renderRecordDetailHTML(rec);
+  document.getElementById('rowModal').classList.remove('hidden');
+}
+function closeLineModal(){
+  document.getElementById('rowModal').classList.add('hidden');
+}
+document.getElementById('rowModalClose').onclick=closeLineModal;
+document.getElementById('btnCloseModal').onclick=closeLineModal;
+document.querySelector('#rowModal [data-close]').onclick=closeLineModal;
+document.addEventListener('keydown', (e)=>{ if(e.key==='Escape') closeLineModal(); });
+document.getElementById('btnCopyModal').onclick=()=>{
+  const txt=document.getElementById('rowModalBody').innerText;
+  navigator.clipboard?.writeText(txt);
+};
 
 // === Relatório de Caixa ===
 function computeCashflowTable(rows, openingBalance){
@@ -574,6 +615,7 @@ function computeDiagnostics(rows){
 let RAW={headers:[], data:[]};
 let REG=[]; // registros normalizados
 let LAST_DET=null, LAST_CF=null;
+const state = {mensalKey:'', rows:[]}; // === MENSAL
 
 // ====== Normalização ======
 function toRecord(row, headers){
@@ -640,10 +682,20 @@ function toRecord(row, headers){
 }
 
 // ====== Render Utils ======
-function renderTable(containerId, headers, rows){
+function renderTable(containerId, headers, rows, opts={}){
   const c = document.getElementById(containerId);
   c.innerHTML = '';
-  c.appendChild(makeTable(headers, rows));
+  const table = makeTable(headers, rows);
+  c.appendChild(table);
+  if(opts.onRowClick){
+    c.onclick = (e)=>{
+      const tr = e.target.closest('tr[data-row-index]');
+      if(!tr) return;
+      const idx = +tr.dataset.rowIndex;
+      opts.onRowClick(rows[idx], idx, tr);
+    };
+    c.querySelectorAll('tbody tr').forEach(tr=> tr.style.cursor='pointer');
+  }
 }
 
 function sum(arr, sel){ let s=0; for(const x of arr){ const v=sel(x); if(typeof v==='number' && isFinite(v)) s+=v; } return s; }
@@ -729,52 +781,7 @@ function makePagarTable(rows){
   return {headers, rows: out, orig};
 }
 
-function makeAging(rows){
-  const abertos = rows.filter(r=> r.sitLabel==='Aberto' || r.sitLabel==='Atrasado');
-  function faixa(d){
-    if(d==null) return 'Sem venc.';
-    if(d<=0) return '0';
-    if(d<=7) return '0–7';
-    if(d<=15) return '8–15';
-    if(d<=30) return '16–30';
-    if(d<=60) return '31–60';
-    if(d<=90) return '61–90';
-    return '>90';
-  }
-  const g = groupBy(abertos, r=> faixa(r.diasAtraso));
-  const fxs = ['0','0–7','8–15','16–30','31–60','61–90','>90','Sem venc.'];
-  const rowsOut=[];
-  for(const f of fxs){
-    const arr = g.get(f)||[];
-    const ar = arr.filter(r=>r.tipo==='Receber');
-    const ap = arr.filter(r=>r.tipo==='Pagar');
-    rowsOut.push({
-      "Faixa": f,
-      "Receber (qtde)": fmtInt(ar.length),
-      "Receber (valor)": fmtBRL(sum(ar,x=>x.valorPrev||0)),
-      "Pagar (qtde)": fmtInt(ap.length),
-      "Pagar (valor)": fmtBRL(sum(ap,x=>x.valorPrev||0))
-    });
-  }
-  return {headers:["Faixa","Receber (qtde)","Receber (valor)","Pagar (qtde)","Pagar (valor)"], rows:rowsOut};
-}
-
-function topContrapartes(rows, tipo){
-  const abertos = rows.filter(r=> (r.sitLabel==='Aberto'||r.sitLabel==='Atrasado') && r.tipo===tipo);
-  const g = groupBy(abertos, r=> r.contraparte||'(sem nome)');
-  const arr = Array.from(g.entries()).map(([k,v])=>({
-    nome:k, qtde:v.length, valor: sum(v,x=>x.valorPrev||0), atrasoMed: Math.round((v.reduce((a,x)=>a+(x.diasAtraso||0),0))/(v.length||1))
-  }))
-  .sort((a,b)=> b.valor - a.valor)
-  .slice(0,10)
-  .map(x=>({
-    "Contraparte": x.nome,
-    "Qtde": fmtInt(x.qtde),
-    "Valor em aberto": fmtBRL(x.valor),
-    "Atraso médio (dias)": fmtInt(x.atrasoMed)
-  }));
-  return {headers:["Contraparte","Qtde","Valor em aberto","Atraso médio (dias)"], rows:arr};
-}
+// === REMOVER AGING
 
 function porPlano(rows){
   const g = groupBy(rows, r=> r.plano||'(sem plano)');
@@ -860,7 +867,7 @@ const kResM = document.getElementById('kResM');
 const kPagM = document.getElementById('kPagarM');
 const kRecM = document.getElementById('kReceberM');
 const kLucM = document.getElementById('kLucroM');
-const selMes = document.getElementById('selMes');
+const mensalMesSelect = document.getElementById('mensalMesSelect');
 const saldoIni = document.getElementById('saldoInicial');
 
 const chResMensal = MiniChart.create(document.getElementById('chResMensal'));
@@ -880,6 +887,7 @@ function refresh(){
   const base = elBase.value; const tipo = elTipo.value; const sit = elSit.value; const doc = elDoc.value; const busca = elBusca.value.trim();
 
   const rows = applyFilters(base, di, df, tipo, sit, doc, busca);
+  state.rows = rows; // === MENSAL
   const baseKey = base==='pag'? 'mes_pag' : (base==='emiss'? 'mes_emiss' : 'mes_venc');
   const monthMap = computeMonthlySeries(rows, baseKey);
   const prSeries = seriesPagarReceberPorMes(monthMap);
@@ -897,10 +905,11 @@ function refresh(){
   kRec.textContent = fmtBRL(totRec);
   kLuc.textContent = lucr!=null? lucr.toFixed(2)+'%' : '—';
 
-  chResMensal.set({type:'bar', labels:resSeries.labels, series:[{label:'Resultado', data:resSeries.values, color:'#f26722'}]});
-  chPVSRMensal.set({type:'bar', labels:prSeries.labels, series:[{label:'Receber', data:prSeries.rec, color:'#98ecb2'},{label:'Pagar', data:prSeries.pag, color:'#ff9b9b'}]});
-  chResAcum.set({type:'line', labels:acumSeries.labels, series:[{label:'Acumulado', data:acumSeries.values, color:'#f26722'}]});
-  chLucroMensal.set({type:'line', labels:lucroSeries.labels, series:[{label:'Lucratividade', data:lucroSeries.values, color:'#98ecb2'}]});
+  const fmtMes = m=>`${m.slice(5,7)}/${m.slice(2,4)}`;
+  chResMensal.set({type:'bar', labels:resSeries.labels.map(fmtMes), series:[{label:'Resultado', data:resSeries.values, color:'#f26722', fmt:fmtCurrencyBR}], fmtY:fmtCurrencyBR});
+  chPVSRMensal.set({type:'bar', labels:prSeries.labels.map(fmtMes), series:[{label:'Receber', data:prSeries.rec, color:'#98ecb2', fmt:fmtCurrencyBR},{label:'Pagar', data:prSeries.pag, color:'#ff9b9b', fmt:fmtCurrencyBR}], fmtY:fmtCurrencyBR});
+  chResAcum.set({type:'line', labels:acumSeries.labels.map(fmtMes), series:[{label:'Acumulado', data:acumSeries.values, color:'#f26722', fmt:fmtCurrencyBR}], fmtY:fmtCurrencyBR});
+  chLucroMensal.set({type:'line', labels:lucroSeries.labels.map(fmtMes), series:[{label:'Lucratividade', data:lucroSeries.values, color:'#98ecb2', fmt:fmtPercent}], fmtY:fmtPercent});
 
   const meses = makeMesesResumo(rows, base);
   renderTable('tblMeses', Object.keys(meses[0]||{"Mês":"Mês"}), meses);
@@ -914,10 +923,6 @@ function refresh(){
   renderTable('tblPagar', pag.headers, pag.rows, {onRowClick:(r,i)=> openLineModal(pag.orig[i])});
   document.getElementById('pagStats').textContent = `${pag.rows.length||0} linhas`;
 
-  const ag = makeAging(rows);
-  renderTable('tblAging', ag.headers, ag.rows);
-  document.getElementById('agingStats').textContent = `Faixas calculadas sobre títulos em aberto/atrasado`;
-
   const pl = porPlano(rows);
   renderTable('tblPlanos', pl.headers, pl.rows);
   const ct = porCentro(rows);
@@ -929,25 +934,16 @@ function refresh(){
   document.getElementById('detStats').textContent = `${det.rows.length||0} linhas`;
   LAST_DET = det;
 
-  // Mensal
-  const mesesOpt = prSeries.labels;
-  selMes.innerHTML = mesesOpt.map(m=>`<option value="${m}">${m}</option>`).join('');
-  if(mesesOpt.length && !mesesOpt.includes(selMes.value)) selMes.value = mesesOpt[mesesOpt.length-1];
-  const mesSel = selMes.value;
-  const rowsMes = rows.filter(r=> r[baseKey]===mesSel);
-  const mm = computeMonthlySeries(rowsMes, baseKey);
-  const prM = seriesPagarReceberPorMes(mm);
-  const resM = seriesResultadoPorMes(mm);
-  const totRecM = prM.rec.reduce((a,b)=>a+b,0);
-  const totPagM = prM.pag.reduce((a,b)=>a+b,0);
-  const resValM = totRecM - totPagM;
-  const lucM = totRecM>0? resValM/totRecM*100 : null;
-  kResM.textContent = fmtBRL(resValM);
-  kPagM.textContent = fmtBRL(totPagM);
-  kRecM.textContent = fmtBRL(totRecM);
-  kLucM.textContent = lucM!=null? lucM.toFixed(2)+'%' : '—';
-  const recM = makeReceberTable(rowsMes); renderTable('tblMensalRec', recM.headers, recM.rows, {onRowClick:(r,i)=> openLineModal(recM.orig[i])}); document.getElementById('recMensalStats').textContent=`${recM.rows.length||0} linhas`;
-  const pagM = makePagarTable(rowsMes); renderTable('tblMensalPag', pagM.headers, pagM.rows, {onRowClick:(r,i)=> openLineModal(pagM.orig[i])}); document.getElementById('pagMensalStats').textContent=`${pagM.rows.length||0} linhas`;
+  // === MENSAL
+  const mensalOpts = buildMensalOptions(rows, baseKey);
+  mensalMesSelect.innerHTML = mensalOpts.map(o=>`<option value="${o.key}">${o.label}</option>`).join('');
+  if(state.mensalKey && mensalOpts.some(o=>o.key===state.mensalKey)){
+    mensalMesSelect.value = state.mensalKey;
+  } else {
+    mensalMesSelect.value = mensalOpts[0]? mensalOpts[0].key : '';
+    state.mensalKey = mensalMesSelect.value;
+  }
+  if(document.querySelector('.tab.active').dataset.tab==='mensal') renderMensalView();
 
   // Relatório de Caixa
   const rowsCaixa = applyFilters('pag', di, df, tipo, sit, doc, busca);
@@ -1002,9 +998,8 @@ elFile.addEventListener('change', async (e)=>{
   elDoc.addEventListener(ev, refresh);
   elBusca.addEventListener(ev, ()=>{ clearTimeout(window.___t); window.___t=setTimeout(refresh,200); });
 });
-selMes.addEventListener('change', refresh);
+mensalMesSelect.addEventListener('change', (e)=>{ state.mensalKey=e.target.value; renderMensalView(); });
 saldoIni.addEventListener('change', refresh);
-document.getElementById('lineModal').addEventListener('click', e=>{ if(e.target.id==='lineModal') closeLineModal(); });
 
 // Export atual
 document.getElementById('btnExport').addEventListener('click', ()=>{
@@ -1034,7 +1029,7 @@ const sections = {
   mensal: document.getElementById('tab-mensal'),
   receber: document.getElementById('tab-receber'),
   pagar: document.getElementById('tab-pagar'),
-  aging: document.getElementById('tab-aging'),
+  // === REMOVER AGING
   planos: document.getElementById('tab-planos'),
   detalhe: document.getElementById('tab-detalhe'),
   relcaixa: document.getElementById('tab-relcaixa'),
@@ -1048,6 +1043,7 @@ tabsEl.addEventListener('click', (e)=>{
     e.target.classList.add('active');
     Object.keys(sections).forEach(k=> sections[k].style.display='none');
     sections[tab].style.display='block';
+    if(tab==='mensal') renderMensalView();
   }
 });
 
