@@ -6,7 +6,8 @@
 <title>Dashboard Financeiro – Contas a Receber & Pagar</title>
 <style>
   :root{
-    --bg:#0b1020; --card:#0f172a; --soft:#1e293b; --muted:#94a3b8; --text:#e5e7eb; --acc:#f26722;
+    --bg:#0b1020; --card:#0f172a; --soft:#1e293b; --muted:#94a3b8; --text:#e5e7eb;
+    --fg:var(--text); --acc:#f26722; --accent-1:#4aa3ff; --accent-2:#ffb14a;
     --ring:rgba(242,103,34,.35);
   }
   *{box-sizing:border-box}
@@ -182,12 +183,14 @@
         </div>
       </div>
       <div id="tblMeses"></div>
-      <!-- === Gráficos mensais === -->
+      <!-- === Gráficos profissionais === -->
       <div class="row" style="gap:12px;flex-wrap:wrap">
-        <div class="card" style="flex:1;min-width:320px"><canvas id="chResMensal"></canvas></div>
-        <div class="card" style="flex:1;min-width:320px"><canvas id="chPVSRMensal"></canvas></div>
-        <div class="card" style="flex:1;min-width:320px"><canvas id="chResAcum"></canvas></div>
-        <div class="card" style="flex:1;min-width:320px"><canvas id="chLucroMensal"></canvas></div>
+        <div class="card" style="flex:1;min-width:320px"><canvas id="chDistrib"></canvas></div>
+        <div class="card" style="flex:1;min-width:320px"><canvas id="chPipeline"></canvas></div>
+        <div class="card" style="flex:1;min-width:320px"><canvas id="chAcumulado"></canvas></div>
+        <div class="card" style="flex:1;min-width:320px"><canvas id="chTopClientes"></canvas></div>
+        <div class="card" style="flex:1;min-width:320px"><canvas id="chHistograma"></canvas></div>
+        <div class="card" style="flex:1;min-width:320px"><canvas id="chMesControle"></canvas></div>
       </div>
       <div class="foot"><span id="infoMeses">—</span><span class="mono" id="now"></span></div>
     </section>
@@ -320,6 +323,17 @@ const fmtInt = (n)=> isFinite(n) ? n.toLocaleString('pt-BR') : '—';
 const pad2 = (x)=> String(x).padStart(2,'0');
 const fmtDate = (d)=> d? `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}` : '';
 const fmtDateBR = (d)=> d? `${pad2(d.getDate())}/${pad2(d.getMonth()+1)}/${d.getFullYear()}` : '';
+
+// === Chart design tokens ===
+function getCssVar(v){ return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+const ChartTheme = {
+  bg:getCssVar('--bg'), fg:getCssVar('--fg'), grid:'rgba(255,255,255,.08)',
+  money:getCssVar('--accent-1'), moneyAlt:getCssVar('--accent-2'),
+  series:{
+    faturado:'#4aa3ff', aFaturar:'#ffb14a', cancelado:'#ff6b6b', analise:'#7aa6a8', autorizado:'#b88cff'
+  },
+  barRadius:8, lineWidth:2.5, point:4,
+};
 
 function parseDateFlexible(s){
   if(!s) return null;
@@ -491,7 +505,7 @@ const _MiniChartOld = (()=>{
   return {mount,niceScale};
 })();
 // === CHARTS LEGÍVEIS
-const MiniChart = (()=>{
+const MiniChartLegacy = (()=>{
   function niceScale(maxAbs, maxTicks=6){
     const nice=[1,2,5];
     if(maxAbs<=0) return {step:1,max:1,ticks:[0,1]};
@@ -554,6 +568,82 @@ const MiniChart = (()=>{
   function redraw(canvas){ const inst=INST.get(canvas); if(inst) inst.draw(); }
   return {mount,unmount,niceScale,redraw};
 })();
+// === MiniChart v2 ===
+const MiniChart = (()=>{
+  function niceScale(maxAbs,maxTicks=6){
+    const nice=[1,2,5];
+    if(maxAbs<=0) return {step:1,max:1,ticks:[0,1]};
+    const mag=Math.pow(10,Math.floor(Math.log10(maxAbs)));
+    let step=mag; for(const f of nice){const s=f*mag;if(maxAbs/s<=maxTicks){step=s;break;}}
+    const top=Math.ceil(maxAbs/step)*step; const ticks=[]; for(let t=0;t<=top+1e-9;t+=step) ticks.push(t);
+    return {step,max:top,ticks};
+  }
+  const INST=new WeakMap();
+  function drawRoundedRect(ctx,x,y,w,h,r){ if(r<=0){ctx.fillRect(x,y,w,h);return;} const rr=Math.min(r,w/2,h/2); ctx.beginPath(); ctx.moveTo(x+rr,y); ctx.lineTo(x+w-rr,y); ctx.quadraticCurveTo(x+w,y,x+w,y+rr); ctx.lineTo(x+w,y+h-rr); ctx.quadraticCurveTo(x+w,y+h,x+w-rr,y+h); ctx.lineTo(x+rr,y+h); ctx.quadraticCurveTo(x,y+h,x,y+h-rr); ctx.lineTo(x,y+rr); ctx.quadraticCurveTo(x,y,x+rr,y); ctx.closePath(); ctx.fill(); }
+  const deg2rad=d=>d*Math.PI/180;
+  function mount(canvas,cfg={},opt={}){
+    const ctx=canvas.getContext('2d');
+    const tooltip=document.createElement('div'); tooltip.className='chart-tooltip hidden';
+    canvas.parentElement.style.position='relative'; canvas.parentElement.appendChild(tooltip);
+    const state={cfg:null,hidden:new Set(),opts:{dataLabels:'auto',...opt},legend:[],hover:null,points:[],start:0};
+    const ro=new ResizeObserver(()=>draw()); ro.observe(canvas);
+    function fmtFull(v,u){return u==='money'?fmtCurrencyBR(v):u==='percent'?fmtPercent(v):fmtInt(v);}
+    function fmtShort(v,u){return u==='money'?fmtCurrencyCompactBR(v):u==='percent'?fmtPercent(v):fmtInt(v);}
+    function fit(){const dpr=window.devicePixelRatio||1; const w=canvas.clientWidth,h=canvas.clientHeight; canvas.width=w*dpr; canvas.height=h*dpr; ctx.setTransform(dpr,0,0,dpr,0,0);}
+    function draw(ts){
+      fit(); const cfg=state.cfg; const dpr=window.devicePixelRatio||1; const w=canvas.width/dpr,h=canvas.height/dpr; ctx.clearRect(0,0,w,h);
+      if(!cfg||(!cfg.labels.length&&cfg.type!=='donut')){ctx.fillStyle='var(--muted)';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('Sem dados no período',w/2,h/2);return;}
+      const vis=cfg.datasets.filter(d=>!state.hidden.has(d.name));
+      if(!vis.length){ctx.fillStyle='var(--muted)';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('Sem dados no período',w/2,h/2);return;}
+      let prog=1; if(state.start){prog=Math.min(1,(ts-state.start)/300); if(prog<1) requestAnimationFrame(draw); else state.start=0;}
+      if(cfg.type==='donut'){
+        const total=vis.reduce((s,d)=>s+(d.data[0]||0),0);
+        const cx=w/2,cy=h/2; const r=Math.min(w,h)*0.45; const th=r*0.48; let ang=-Math.PI/2;
+        state.legend=[]; vis.forEach(ds=>{const val=(ds.data[0]||0)*prog; const a=total?val/total*2*Math.PI:0; ctx.beginPath(); ctx.strokeStyle=ds.color; ctx.lineWidth=th; ctx.lineCap='butt'; ctx.shadowColor='rgba(0,0,0,.25)'; ctx.shadowBlur=4; ctx.arc(cx,cy,r,ang+deg2rad(2)/2,ang+a-deg2rad(2)/2); ctx.stroke(); ctx.shadowBlur=0; ang+=a;});
+        ctx.fillStyle=ChartTheme.fg; ctx.textAlign='center'; ctx.textBaseline='middle'; const fat=vis.find(d=>d.name==='Faturado')?.data[0]||0; ctx.font='16px sans-serif'; ctx.fillText(fmtFull(fat,'money'),cx,cy-8); ctx.font='12px sans-serif'; ctx.fillStyle='var(--muted)'; ctx.fillText(total?fmtPercent(fat/total,1):'0%',cx,cy+12);
+        let lx=16,ly=h-20; ctx.font='12px sans-serif'; state.legend=[]; vis.forEach(ds=>{const wt=ctx.measureText(ds.name).width; state.legend.push({x:lx,y:ly,w:wt+24,name:ds.name}); ctx.fillStyle=ds.color; drawRoundedRect(ctx,lx,ly-8,wt+24,16,8); ctx.fillStyle=ChartTheme.bg; ctx.fillText(ds.name,lx+12,ly); lx+=wt+40;}); state.points=[]; return;
+      }
+      const margins={top:36,right:16,bottom:52,left:64};
+      const labels=cfg.labels; const innerW=w-margins.left-margins.right; const innerH=h-margins.top-margins.bottom;
+      const maxAbs=Math.max(...vis.flatMap(ds=>ds.data.map(v=>Math.abs(v))),0);
+      const scale=niceScale(maxAbs,6);
+      ctx.strokeStyle=ChartTheme.fg; ctx.beginPath(); ctx.moveTo(margins.left,margins.top); ctx.lineTo(margins.left,h-margins.bottom); ctx.lineTo(w-margins.right,h-margins.bottom); ctx.stroke();
+      ctx.textAlign='right'; ctx.textBaseline='middle'; ctx.fillStyle='var(--muted)'; ctx.font='11px sans-serif';
+      scale.ticks.forEach(t=>{const y=h-margins.bottom-(t/scale.max)*innerH; ctx.strokeStyle=ChartTheme.grid; ctx.beginPath(); ctx.moveTo(margins.left,y); ctx.lineTo(w-margins.right,y); ctx.stroke(); ctx.fillText(fmtFull(t,vis[0].unit),margins.left-4,y);});
+      const stepX=labels.length?innerW/labels.length:innerW; const skip=labels.length>10?Math.ceil(labels.length/10):1; ctx.textAlign='center'; ctx.textBaseline='top';
+      labels.forEach((lab,i)=>{if(i%skip!==0) return; const x=margins.left+i*stepX+stepX/2; const y=h-margins.bottom+6; if(skip>1){ctx.save();ctx.translate(x,y);ctx.rotate(-Math.PI/6);ctx.fillText(lab,0,0);ctx.restore();} else ctx.fillText(lab,x,y);});
+      const ptsDs=[];
+      if(cfg.type==='bar'||cfg.type==='hist'){
+        const bw=stepX*0.8/vis.length; const off=stepX/vis.length;
+        vis.forEach((ds,si)=>{ ctx.fillStyle=ds.color; ctx.shadowColor='rgba(0,0,0,.15)'; ctx.shadowBlur=3; const pts=[]; ds.data.forEach((v,i)=>{const val=v*prog; const x=margins.left+i*stepX+off*si+(off-bw)/2; const bh=scale.max?(val/scale.max)*innerH:0; const y=h-margins.bottom-bh; drawRoundedRect(ctx,x,y,bw,bh,ChartTheme.barRadius); pts.push({x:x+bw/2,y,v});}); ctx.shadowBlur=0; ptsDs.push({ds,pts});});
+      } else if(cfg.type==='bar-h'){
+        const stepY=innerH/labels.length; const bw=stepY*0.8/vis.length; const off=stepY/vis.length;
+        vis.forEach((ds,si)=>{ ctx.fillStyle=ds.color; ctx.shadowColor='rgba(0,0,0,.15)'; ctx.shadowBlur=3; const pts=[]; ds.data.forEach((v,i)=>{const val=v*prog; const bwid=scale.max?(val/scale.max)*innerW:0; const x=margins.left; const y=margins.top+i*stepY+off*si+(off-bw)/2; drawRoundedRect(ctx,x,y,bwid,bw,ChartTheme.barRadius); pts.push({x:x+bwid,y:y+bw/2,v});}); ctx.shadowBlur=0; ptsDs.push({ds,pts});});
+      } else if(cfg.type==='stacked'){
+        const bw=stepX*0.8; vis.forEach((ds,si)=>{ const pts=[]; ds.data.forEach((v,i)=>{ const prev=vis.slice(0,si).reduce((a,d)=>a+d.data[i],0); const val=v*prog; const x=margins.left+i*stepX+(stepX-bw)/2; const bh=scale.max?(val/scale.max)*innerH:0; const y=h-margins.bottom-(prev/scale.max)*innerH-bh; ctx.fillStyle=ds.color; ctx.shadowColor='rgba(0,0,0,.15)'; ctx.shadowBlur=3; drawRoundedRect(ctx,x,y,bw,bh,ChartTheme.barRadius); ctx.shadowBlur=0; pts.push({x:x+bw/2,y:y+2,v}); }); ptsDs.push({ds,pts}); });
+      } else if(cfg.type==='line'){
+        vis.forEach(ds=>{ ctx.strokeStyle=ds.color; ctx.lineWidth=ChartTheme.lineWidth; ctx.beginPath(); const pts=[]; ds.data.forEach((v,i)=>{const val=v*prog; const x=margins.left+i*stepX+stepX/2; const y=h-margins.bottom-(val/scale.max)*innerH; if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); pts.push({x,y,v}); }); ctx.stroke(); ctx.globalAlpha=0.15; ctx.fillStyle=ds.color; ctx.beginPath(); ds.data.forEach((v,i)=>{const val=v*prog; const x=margins.left+i*stepX+stepX/2; const y=h-margins.bottom-(val/scale.max)*innerH; if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);}); ctx.lineTo(margins.left+(labels.length-1)*stepX+stepX/2,h-margins.bottom); ctx.lineTo(margins.left,h-margins.bottom); ctx.closePath(); ctx.fill(); ctx.globalAlpha=1; ctx.fillStyle=ds.color; pts.forEach(p=>{ctx.beginPath();ctx.arc(p.x,p.y,ChartTheme.point,0,Math.PI*2);ctx.fill();}); ptsDs.push({ds,pts}); });
+      }
+      ctx.font='12px sans-serif'; ctx.textBaseline='middle'; ctx.textAlign='left'; let lx=w-margins.right; const ly=margins.top-20; state.legend=[];
+      cfg.datasets.forEach(ds=>{const wt=ctx.measureText(ds.name).width; lx-=wt+24; state.legend.push({x:lx,y:ly,w:wt+24,name:ds.name}); ctx.fillStyle=ds.color; ctx.fillRect(lx,ly-6,12,12); ctx.fillStyle=state.hidden.has(ds.name)?'var(--muted)':ChartTheme.fg; ctx.fillText(ds.name,lx+16,ly); });
+      ctx.font='11px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='bottom'; const lbls=[];
+      ptsDs.forEach(({ds,pts})=>{const stepOk=stepX>=24; const policy=state.opts.dataLabels||'auto'; const maxP=pts.reduce((m,p)=>p.v>m.v?p:m,pts[0]); const minP=pts.reduce((m,p)=>p.v<m.v?p:m,pts[0]); const lastP=pts[pts.length-1]; pts.forEach((p,i)=>{ let pr=3; if(state.hover&&state.hover.ds===ds&&state.hover.i===i) pr=0; else if(p===maxP||p===minP||p===lastP) pr=1; if(state.opts.dataLabels==='none') return; if(policy==='auto' && pr>1 && !stepOk) return; lbls.push({x:p.x,y:p.y-4,text:fmtShort(p.v,ds.unit),priority:pr}); }); });
+      lbls.sort((a,b)=>a.priority-b.priority); const placed=[]; lbls.forEach(l=>{ if(placed.some(p=>Math.abs(p.y-l.y)<12 && Math.abs(p.x-l.x)<24 && p.priority<=l.priority)) return; ctx.fillStyle=ChartTheme.fg; ctx.fillText(l.text,l.x,l.y); placed.push(l); });
+      state.points=ptsDs;
+      if(state.hover){ const {ds,i}=state.hover; const pt=ptsDs.find(p=>p.ds===ds).pts[i]; tooltip.innerHTML=`<b>${labels[i]}</b><br>${ds.name}: ${fmtFull(ds.data[i],ds.unit)}`; tooltip.style.left=pt.x+10+'px'; tooltip.style.top=pt.y+10+'px'; tooltip.classList.remove('hidden'); } else tooltip.classList.add('hidden');
+    }
+    function setCfg(c){ state.cfg=c; state.start=performance.now(); draw(state.start); }
+    function onMove(e){ const r=canvas.getBoundingClientRect(); const x=e.clientX-r.left; const y=e.clientY-r.top; state.hover=null; state.points.forEach(({ds,pts})=>{ pts.forEach((p,i)=>{ if(Math.hypot(p.x-x,p.y-y)<=ChartTheme.point+2) state.hover={ds,i}; }); }); draw(); }
+    function onLeave(){ state.hover=null; draw(); }
+    function onClick(e){ const r=canvas.getBoundingClientRect(); const x=e.clientX-r.left; const y=e.clientY-r.top; const item=state.legend.find(l=>x>=l.x && x<=l.x+l.w && y>=l.y-10 && y<=l.y+10); if(item){ if(state.hidden.has(item.name)) state.hidden.delete(item.name); else state.hidden.add(item.name); draw(); } }
+    canvas.addEventListener('mousemove',onMove); canvas.addEventListener('mouseleave',onLeave); canvas.addEventListener('click',onClick);
+    setCfg(cfg);
+    const inst={update:setCfg,getConfig:()=>state.cfg,draw,onMove,onLeave,onClick,ro,tooltip};
+    INST.set(canvas,inst); return inst;
+  }
+  function unmount(canvas){ const inst=INST.get(canvas); if(!inst) return; canvas.removeEventListener('mousemove',inst.onMove); canvas.removeEventListener('mouseleave',inst.onLeave); canvas.removeEventListener('click',inst.onClick); inst.ro.disconnect(); inst.tooltip.remove(); INST.delete(canvas); }
+  return {mount,unmount,niceScale};
+})();
 // === Séries mensais ===
 function computeMonthlySeries(rows, baseKey){
   const map = new Map();
@@ -596,6 +686,52 @@ function seriesAcumulado(resSerie){
 function seriesLucratividadeMes(recSerie, resSerie){
   const vals = resSerie.labels.map((_,i)=> recSerie.rec[i]>0? (resSerie.values[i]/recSerie.rec[i]*100):0);
   return {labels:resSerie.labels, values:vals};
+}
+
+
+// === Charts Pro ===
+function renderChartsPro(monthMap){
+  const base = elBase.value;
+  const labels = Array.from(monthMap.keys()).sort();
+  const fmtMes = m=>`${m.slice(5,7)}/${m.slice(2,4)}`;
+  const totFat = labels.reduce((s,m)=> s + (base==='pag'? monthMap.get(m).recReal : monthMap.get(m).recPrev),0);
+  const totPrev = labels.reduce((s,m)=> s + (base==='pag'? monthMap.get(m).recReal : monthMap.get(m).recPrev),0);
+  const totAFat = totPrev - totFat;
+  const cfgDistrib={type:'donut',labels:['Distribuição'],datasets:[
+    {name:'Faturado',data:[totFat],unit:'money',color:ChartTheme.series.faturado},
+    {name:'A faturar',data:[totAFat],unit:'money',color:ChartTheme.series.aFaturar},
+    {name:'Cancelado',data:[0],unit:'money',color:ChartTheme.series.cancelado}
+  ]};
+  const cfgPipeline={type:'bar',labels:['Em análise','Autorizado','Faturado','Cancelado'],datasets:[{name:'Valores',data:[0,0,totFat,0],unit:'money',color:ChartTheme.series.faturado}],dataLabels:'all'};
+  const resSerie=seriesResultadoPorMes(monthMap);
+  const acumSerie=seriesAcumulado(resSerie);
+  const cfgAcum={type:'line',labels:acumSerie.labels.map(fmtMes),datasets:[{name:'Acumulado',data:acumSerie.values,unit:'money',color:ChartTheme.series.faturado}]};
+  const topMap=new Map();
+  state.rows.forEach(r=>{ if(r.tipo==='Receber'){ const v=base==='pag'? (r.valorReal||0):(r.valorPrev||0); topMap.set(r.contraparte,(topMap.get(r.contraparte)||0)+v); }});
+  const topArr=Array.from(topMap.entries()).sort((a,b)=>b[1]-a[1]).slice(0,10);
+  const topLabels=topArr.map(([n])=> n.length>20? n.slice(0,20)+'…':n);
+  const topValues=topArr.map(([,v])=> v);
+  const cfgTop={type:'bar-h',labels:topLabels,datasets:[{name:'Faturado',data:topValues,unit:'money',color:ChartTheme.series.faturado}]};
+  const bins=[0,14,28,42,56,70]; const histCounts=new Array(bins.length).fill(0);
+  state.rows.forEach(r=>{ if(r.emissao&&r.pag){ const dias=(r.pag-r.emissao)/86400000; for(let i=0;i<bins.length;i++){ if(dias<bins[i]||i===bins.length-1){ histCounts[i]++; break; } } } });
+  const binLabels=bins.map((b,i)=> i===0?`0–${bins[i+1]}`: i===bins.length-1?`${b}+`:`${b}–${bins[i+1]}`);
+  const cfgHist={type:'hist',labels:binLabels,datasets:[{name:'Qtd',data:histCounts,unit:'count',color:ChartTheme.series.analise}]};
+  const stackLabels=labels.map(fmtMes); const stackSeries={analise:[],autorizado:[],faturado:[],cancelado:[]}; stackLabels.forEach(()=>{stackSeries.analise.push(0);stackSeries.autorizado.push(0);stackSeries.faturado.push(0);stackSeries.cancelado.push(0);});
+  const cfgStack={type:'stacked',labels:stackLabels,datasets:[
+    {name:'Em análise',data:stackSeries.analise,unit:'money',color:ChartTheme.series.analise},
+    {name:'Autorizado',data:stackSeries.autorizado,unit:'money',color:ChartTheme.series.autorizado},
+    {name:'Faturado',data:stackSeries.faturado,unit:'money',color:ChartTheme.series.faturado},
+    {name:'Cancelado',data:stackSeries.cancelado,unit:'money',color:ChartTheme.series.cancelado}
+  ]};
+  const charts=[
+    ['chDistrib',cfgDistrib],
+    ['chPipeline',cfgPipeline],
+    ['chAcumulado',cfgAcum],
+    ['chTopClientes',cfgTop],
+    ['chHistograma',cfgHist],
+    ['chMesControle',cfgStack]
+  ];
+  charts.forEach(([id,cfg])=>{ const cv=document.getElementById(id); if(cv){ MiniChart.unmount(cv); storeChartInstance(id, MiniChart.mount(cv,cfg)); }});
 }
 
 // === MENSAL
@@ -1095,19 +1231,7 @@ function refresh(){
   kRec.textContent = fmtBRL(totRec);
   kLuc.textContent = lucr!=null? lucr.toFixed(2)+'%' : '—';
 
-  const fmtMes = m=>`${m.slice(5,7)}/${m.slice(2,4)}`;
-  const cfgRes={type:'bar',labels:resSeries.labels.map(fmtMes),datasets:[{name:'Resultado',data:resSeries.values,unit:'money',color:'#f26722'}]};
-  const cfgPVSR={type:'bar',labels:prSeries.labels.map(fmtMes),datasets:[{name:'Receber',data:prSeries.rec,unit:'money',color:'#98ecb2'},{name:'Pagar',data:prSeries.pag,unit:'money',color:'#ff9b9b'}]};
-  const cfgAcum={type:'line',labels:acumSeries.labels.map(fmtMes),datasets:[{name:'Acumulado',data:acumSeries.values,unit:'money',color:'#f26722'}]};
-  const cfgLuc={type:'line',labels:lucroSeries.labels.map(fmtMes),datasets:[{name:'Lucratividade',data:lucroSeries.values,unit:'percent',color:'#98ecb2'}]};
-  MiniChart.unmount(document.getElementById('chResMensal'));
-  storeChartInstance('chResMensal', MiniChart.mount(document.getElementById('chResMensal'), cfgRes));
-  MiniChart.unmount(document.getElementById('chPVSRMensal'));
-  storeChartInstance('chPVSRMensal', MiniChart.mount(document.getElementById('chPVSRMensal'), cfgPVSR));
-  MiniChart.unmount(document.getElementById('chResAcum'));
-  storeChartInstance('chResAcum', MiniChart.mount(document.getElementById('chResAcum'), cfgAcum));
-  MiniChart.unmount(document.getElementById('chLucroMensal'));
-  storeChartInstance('chLucroMensal', MiniChart.mount(document.getElementById('chLucroMensal'), cfgLuc));
+  renderChartsPro(monthMap);
 
   const meses = makeMesesResumo(rows, base);
   renderTable('tblMeses', Object.keys(meses[0]||{"Mês":"Mês"}), meses, {sortable:true});
@@ -1198,7 +1322,7 @@ elFile.addEventListener('change', async (e)=>{
 });
 mensalMesSelect.addEventListener('change', (e)=>{ state.mensalKey=e.target.value; renderMensalView(); });
 saldoIni.addEventListener('change', refresh);
-['chResMensal','chPVSRMensal','chResAcum','chLucroMensal'].forEach(id=>{
+['chDistrib','chPipeline','chAcumulado','chTopClientes','chHistograma','chMesControle'].forEach(id=>{
   const cv=document.getElementById(id);
   if(cv){cv.style.cursor='zoom-in'; cv.addEventListener('click',()=>openChartModal(id));}
 });
