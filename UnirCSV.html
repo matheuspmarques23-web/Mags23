@@ -277,18 +277,26 @@ btnMerge.addEventListener('click', ()=>{
     'Etiqueta','Status','Total CP',
     'OS/Complemento','Tipo','Cliente','Descrição','Quant./Hrs.','Preço','Total'
   ];
+  const keysOut = [
+    'Numero do Orçamento','ClienteMae','Placa','Veículo',
+    'Data de Entrada','Data de Autorização','Data de fechamento','Data de Saída',
+    'Etiqueta','Status','Total CP',
+    'OS/Complemento','Tipo','ClienteDet','Descrição','Quant./Hrs.','Preço','Total'
+  ];
 
   const out = [];
+  const matchedKeys = new Set();
   let matches = 0;
   for (const d of dataDet){
     const k = keyBase(d[colOSCompl]);
     const m = k ? idxMae.get(k) : null;
     if (!m) continue; // ignora itens sem MÃE correspondente
     matches++;
+    matchedKeys.add(k);
 
     out.push({
       'Numero do Orçamento': (m[colNumMae] ?? '').toString().trim(),
-      'Cliente': (m[colCliMae] ?? '').toString().trim(),
+      'ClienteMae': (m[colCliMae] ?? '').toString().trim(),
       'Placa': (m[colPlaca] ?? '').toString().trim(),
       'Veículo': (m[colVeic] ?? '').toString().trim(),
       'Data de Entrada': (m[colEnt] ?? '').toString().trim(),
@@ -300,7 +308,7 @@ btnMerge.addEventListener('click', ()=>{
       'Total CP': (m[colTotMae] ?? '').toString().trim(),
       'OS/Complemento': (d[colOSCompl] ?? '').toString().split('/')[0].trim(),
       'Tipo': (colTipo ? d[colTipo] : '').toString().trim(),
-      'Cliente': (colCliDet ? d[colCliDet] : '').toString().trim(),            // mantém o nome "Cliente" (pode ficar igual ao do MÃE)
+      'ClienteDet': (colCliDet ? d[colCliDet] : '').toString().trim(),
       'Descrição': (colDesc ? d[colDesc] : '').toString().trim(),
       'Quant./Hrs.': (colQtd ? d[colQtd] : '').toString().trim(),
       'Preço': (colPreco ? d[colPreco] : '').toString().trim(),
@@ -308,18 +316,45 @@ btnMerge.addEventListener('click', ()=>{
     });
   }
 
+  // adiciona entradas do MÃE sem detalhes correspondentes
+  let withoutDetails = 0;
+  for (const [k, m] of idxMae.entries()){
+    if (matchedKeys.has(k)) continue;
+    withoutDetails++;
+    out.push({
+      'Numero do Orçamento': (m[colNumMae] ?? '').toString().trim(),
+      'ClienteMae': (m[colCliMae] ?? '').toString().trim(),
+      'Placa': (m[colPlaca] ?? '').toString().trim(),
+      'Veículo': (m[colVeic] ?? '').toString().trim(),
+      'Data de Entrada': (m[colEnt] ?? '').toString().trim(),
+      'Data de Autorização': (m[colAut] ?? '').toString().trim(),
+      'Data de fechamento': (m[colFec] ?? '').toString().trim(),
+      'Data de Saída': (m[colSai] ?? '').toString().trim(),
+      'Etiqueta': (m[colEti] ?? '').toString().trim(),
+      'Status': (m[colSta] ?? '').toString().trim(),
+      'Total CP': (m[colTotMae] ?? '').toString().trim(),
+      'OS/Complemento': '',
+      'Tipo': '',
+      'ClienteDet': '',
+      'Descrição': '',
+      'Quant./Hrs.': '',
+      'Preço': '',
+      'Total': '',
+    });
+  }
+
   // KPIs
   kpis.style.display = 'flex';
   kpiMae.textContent = `MÃE: ${dataMae.length} linhas (${metaMae.delim} como separador)`;
   kpiDet.textContent = `DETALHES: ${dataDet.length} linhas (${metaDet.delim} como separador)`;
-  kpiMatch.textContent = `Itens combinados: ${matches}`;
+  kpiMatch.textContent = `Itens combinados: ${matches}${withoutDetails ? ` | OS sem itens: ${withoutDetails}` : ''}`;
 
   // preview
-  renderTable(headersOut, out.slice(0,150));
+  renderTable(headersOut, out.slice(0,150), keysOut);
   previewCard.style.display = 'block';
 
   // download
-  const csv = toCSV(headersOut, out);
+  const csv = toCSV(headersOut, out, keysOut);
   downloadFile(csv, `BaseUnificada_${new Date().toISOString().slice(0,10)}.csv`, 'text/csv;charset=utf-8');
   setStatus(`Unidos ${matches} itens com cabeçalho. CSV baixado.`);
 });
@@ -340,7 +375,7 @@ function refreshUI(){
 }
 
 /* ------------------------- CSV → download ------------------------- */
-function toCSV(headers, rows){
+function toCSV(headers, rows, keys=null){
   const esc = v=>{
     if (v==null) v='';
     v = String(v);
@@ -352,8 +387,9 @@ function toCSV(headers, rows){
   const delim = ','; // saída padronizada com vírgula
   const out = [];
   out.push(headers.map(esc).join(delim));
+  const cols = keys || headers;
   for (const r of rows){
-    out.push(headers.map(h => esc(r[h])).join(delim));
+    out.push(cols.map(k => esc(r[k])).join(delim));
   }
   return out.join('\n');
 }
@@ -367,10 +403,11 @@ function downloadFile(content, filename, mime){
 }
 
 /* ------------------------- Tabela de prévia ------------------------- */
-function renderTable(headers, rows){
+function renderTable(headers, rows, keys=null){
   const ths = headers.map(h=>`<th>${h}</th>`).join('');
+  const cols = keys || headers;
   const trs = rows.map(r=>{
-    const tds = headers.map(h=>`<td>${(r[h]??'')
+    const tds = cols.map(k=>`<td>${(r[k]??'')
       .toString()
       .replace(/&/g,'&amp;').replace(/</g,'&lt;')}</td>`).join('');
     return `<tr>${tds}</tr>`;
